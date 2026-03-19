@@ -39,6 +39,7 @@ from src.utils.data_loader import DataLoader
 from src.pipeline.ner_pipeline import NERPipeline
 from src.pipeline.data_cleaner import DataCleaner
 from src.pipeline.audit_logger import AuditLogger, EventType
+from src.pipeline.anomaly_detector import AnomalyDetector
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
@@ -65,12 +66,14 @@ def create_app(db_path: str = "data/clinicalner.db") -> Flask:
     app.config["PIPELINE"] = NERPipeline(db_path=db_path, use_spacy=True)
     app.config["CLEANER"]  = DataCleaner(strict_mode=False)
     app.config["AUDIT"]    = AuditLogger(db_path=db_path)
+    app.config["DETECTOR"] = AnomalyDetector(contamination=0.05)
 
     logger.info("ClinicalNER Flask app initialised | db=%s", db_path)
 
     # ── Register routes ───────────────────────────────────────────────────────
     _register_api_routes(app)
     _register_ui_routes(app)
+    _register_anomaly_routes(app)
 
     return app
 
@@ -154,9 +157,10 @@ def _register_api_routes(app: Flask) -> None:
         # ── Build response ────────────────────────────────────────────────────
         response = {
             **ner_result,
-            "masked_text": post_result.cleaned_text,
-            "is_valid":    post_result.is_valid,
-            "changes":     pre_result.changes + post_result.changes,
+            "masked_text":    post_result.cleaned_text,
+            "is_valid":       post_result.is_valid,
+            "changes":        pre_result.changes + post_result.changes,
+            "avg_confidence": ner_result.get("avg_confidence", 0.0),
         }
 
         audit.log(
@@ -562,3 +566,42 @@ REPORT_TEMPLATE = """
 </body>
 </html>
 """
+
+def _register_anomaly_routes(app: Flask) -> None:
+
+    @app.route("/api/anomaly-scan", methods=["POST"])
+    def anomaly_scan():
+        """
+        Fit IsolationForest on submitted notes, return anomaly scores.
+
+        Request body: {"notes": [{"id": 1, "text": "...", "entities": [...]}]}
+        Requires at least 10 notes.
+        """
+        detector: AnomalyDetector = app.config["DETECTOR"]
+        audit:    AuditLogger     = app.config["AUDIT"]
+
+        if not request.is_json:
+            return jsonify({"error": "Request must be JSON", "status": 400}), 400
+
+        notes = request.get_json().get("notes", [])
+        if len(notes) < 10:
+            return jsonify({
+                "error": "Need at least 10 notes to fit the anomaly model",
+                "status": 400,
+            }), 400
+
+        try:
+            results = detector.fit_predict(notes)
+            summary = detector.summary(results)
+            audit.log(
+                EventType.PIPELINE_COMPLETE,
+                description=(
+                    f"Anomaly scan: {summary['anomalies_found']} flagged "
+                    f"/ {summary['total_notes']}"
+                ),
+                metadata=summary,
+            )
+            return jsonify({**summary, "results": [r.to_dict() for r in results]}), 200
+        except Exception as e:
+            logger.error("anomaly_scan error: %s", e)
+            return jsonify({"error": str(e), "status": 500}), 500
