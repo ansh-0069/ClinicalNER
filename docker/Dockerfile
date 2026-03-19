@@ -1,70 +1,60 @@
-# Dockerfile
-# Phase 5 — ClinicalNER production container
-#
-# Design decisions:
-#   - python:3.11-slim  : 50% smaller than the full image, no GUI libs needed
-#   - Multi-step RUN    : each layer cached independently → fast rebuilds when
-#                         only code changes (requirements layer stays cached)
-#   - spaCy model baked : downloaded at BUILD time, not boot time — container
-#                         starts in ~1 s, not 30 s
-#   - HEALTHCHECK       : Docker restarts the container automatically if /health
-#                         stops returning 200 — same signal used by AWS ECS / GCP
-#                         Cloud Run load balancers
-#   - Non-root user     : industry standard for container security hardening
-#   - PYTHONDONTWRITEBYTECODE / PYTHONUNBUFFERED : keep logs clean and immediate
+# ── Stage 1: builder ─────────────────────────────────────────────────────────
+# Install deps in a separate stage so the final image stays lean.
+# python:3.11-slim is ~50MB vs python:3.11 at ~900MB.
+FROM python:3.11-slim AS builder
 
-FROM python:3.11-slim
-
-# ── OS packages ───────────────────────────────────────────────────────────────
-# gcc  : needed to compile some Python C extensions
-# curl : used in HEALTHCHECK
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        gcc \
-        curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# ── Python env flags ──────────────────────────────────────────────────────────
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-# ── Working directory ─────────────────────────────────────────────────────────
 WORKDIR /app
 
-# ── Python dependencies (cached layer) ───────────────────────────────────────
-# Copy requirements FIRST so pip layer is rebuilt only when deps change,
-# not on every code edit.
+# Install build tools needed by some Python packages (numpy, scikit-learn)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy only requirements first — Docker cache will reuse this layer
+# on rebuilds as long as requirements.txt hasn't changed.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# ── spaCy model (cached layer) ────────────────────────────────────────────────
-# Install model via direct wheel URL — avoids the `python -m spacy download`
-# CLI resolver bug that produces a malformed "-en_core_web_sm" URL in Docker.
-# Pinned to en_core_web_sm-3.7.1 (compatible with spacy==3.7.4).
-# This layer is cached and only rebuilt when the spaCy version changes.
-RUN pip install --no-cache-dir \
-    https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir --prefix=/install -r requirements.txt && \
+    python -m spacy download en_core_web_sm --target /install/lib/python3.11/site-packages
 
-# ── Application code ──────────────────────────────────────────────────────────
-COPY . .
 
-# ── Security: run as non-root ─────────────────────────────────────────────────
-RUN useradd -m -u 1000 clinicalner && chown -R clinicalner /app
-USER clinicalner
+# ── Stage 2: runtime ─────────────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
 
-# ── Port ─────────────────────────────────────────────────────────────────────
+WORKDIR /app
+
+# Copy installed packages from builder — no build tools in final image
+COPY --from=builder /install /usr/local
+
+# Copy application source
+COPY src/       ./src/
+COPY data/raw/  ./data/raw/
+COPY run_phase1.py run_phase2.py run_phase3.py run_phase4.py ./
+
+# Create data directory for the SQLite database
+RUN mkdir -p data
+
+# Run as non-root user — security best practice for containers
+RUN useradd --no-create-home --shell /bin/false appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+# Environment variables
+ENV FLASK_ENV=production
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Expose Flask port
 EXPOSE 5000
 
-# ── Health check (called by Docker daemon every 30 s) ─────────────────────────
-# --fail : return non-zero on HTTP error codes (triggers unhealthy status)
+# Health check — Docker will mark container unhealthy if this fails
+# Retries 3 times with 10s intervals before declaring unhealthy
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl --fail http://localhost:5000/health || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"
 
-# ── Entrypoint ────────────────────────────────────────────────────────────────
-# entrypoint.sh seeds the DB on first boot, then starts Flask
-COPY docker/entrypoint.sh /entrypoint.sh
-# Switch to root briefly to chmod, then back to app user
-USER root
-RUN chmod +x /entrypoint.sh
-USER clinicalner
-
-ENTRYPOINT ["/entrypoint.sh"]
+# Entrypoint: seed the database then start Flask via gunicorn
+# gunicorn is production-grade — never use Flask dev server in production
+CMD ["sh", "-c", "python run_phase1.py && python run_phase2.py && python run_phase3.py && \
+     gunicorn --bind 0.0.0.0:5000 --workers 2 --timeout 120 \
+     'src.api.app:create_app()'"]
