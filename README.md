@@ -1,38 +1,50 @@
-# ClinicalNER — Clinical Notes De-Identification Pipeline
+# ClinicalNER — NLP De-identification Pipeline
+
+![Tests](https://img.shields.io/badge/tests-110%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-81%25-brightgreen)
+![Python](https://img.shields.io/badge/python-3.11-blue)
+![spaCy](https://img.shields.io/badge/spaCy-3.x-09a3d5)
+![Docker](https://img.shields.io/badge/docker-ready-blue)
+![Flask](https://img.shields.io/badge/flask-REST%20API-lightgrey)
 
 > **Portfolio Project** — Built for the Associate Clinical Programmer JD (0–2 yrs exp)
 
-An end-to-end NLP pipeline that ingests unstructured clinical notes, extracts PHI entities (names, dates, hospitals, phone numbers, ages), de-identifies the text, and serves results via a Flask REST API — all containerized with Docker.
+An end-to-end NLP pipeline that ingests unstructured clinical notes, extracts PHI entities (names, dates, hospitals, phone numbers, MRNs), de-identifies the text, and serves results via a Flask REST API — all containerized with Docker.
 
 ---
 
 ## Architecture
 
 ```
-data/
-  raw/              ← MTSamples CSV or synthetic notes
-  clinicalner.db    ← SQLite (clinical_notes, processed_notes, audit_log)
-  eda_outputs/      ← EDA charts (PNG)
-src/
-  utils/
-    data_loader.py  ← DataLoader class (ingestion + SQL)
-    eda.py          ← ClinicalEDA class (5 chart types)
-  pipeline/
-    ner_pipeline.py   ← NERPipeline class (hybrid regex + spaCy)
-    data_cleaner.py   ← DataCleaner class (pre/post-NER cleaning)
-    audit_logger.py   ← AuditLogger class (append-only event log)
-  api/
-    app.py            ← Flask application factory
-docker/
-  Dockerfile          ← spaCy model baked in, HEALTHCHECK, non-root user
-  entrypoint.sh       ← DB seed on first boot, gunicorn in prod
-docker-compose.yml
-run_phase1.py  →  run_phase5.py
+ClinicalNER/
+├── src/
+│   ├── utils/
+│   │   ├── data_loader.py    ← DataLoader class (ingestion + SQL)
+│   │   └── eda.py            ← ClinicalEDA class (5 chart types)
+│   ├── pipeline/
+│   │   ├── ner_pipeline.py   ← NERPipeline class (hybrid regex + spaCy)
+│   │   ├── data_cleaner.py   ← DataCleaner class (pre/post-NER cleaning)
+│   │   └── audit_logger.py   ← AuditLogger class (append-only event log)
+│   └── api/
+│       └── app.py            ← Flask application factory (5 routes)
+├── tests/
+│   ├── test_ner_pipeline.py  ← 21 tests
+│   ├── test_phase3.py        ← 50 tests (DataCleaner + AuditLogger)
+│   └── test_phase4.py        ← 39 tests (Flask routes)
+├── data/
+│   ├── raw/                  ← MTSamples CSV or synthetic notes
+│   ├── clinicalner.db        ← SQLite (clinical_notes, processed_notes, audit_log)
+│   └── eda_outputs/          ← EDA charts (PNG)
+├── docker/
+│   ├── Dockerfile
+│   └── entrypoint.sh
+├── docker-compose.yml
+└── run_phase1.py → run_phase5.py
 ```
 
 ---
 
-## Quick Start (Local — no Docker)
+## Quick Start (Local)
 
 ```bash
 git clone <repo> && cd ClinicalNER
@@ -48,28 +60,14 @@ python run_phase4.py   # start Flask on :5000
 ## Quick Start (Docker)
 
 ```bash
-# Build + start (first run downloads spaCy model inside image — ~2 min)
-docker compose up --build
-
-# Subsequent runs (cached image — ~5 s)
-docker compose up -d
-
-# Logs
+docker compose up --build   # first run ~2 min (downloads spaCy model)
+docker compose up -d        # subsequent runs ~5 s
 docker compose logs -f clinicalner
-
-# Stop
 docker compose down
 ```
 
 Container auto-seeds the database with 500 synthetic notes on first boot.  
 Dashboard: **http://localhost:5000/dashboard**
-
-### Docker smoke test
-
-```bash
-python run_phase5.py           # build + test + leave container running
-python run_phase5.py --teardown  # build + test + stop container
-```
 
 ---
 
@@ -84,12 +82,35 @@ python run_phase5.py --teardown  # build + test + stop container
 | `GET`  | `/dashboard` | Live EDA dashboard (Chart.js) |
 | `GET`  | `/report/<id>` | Before/after diff view |
 
-### Example — de-identify a note
+### Example
 
 ```bash
 curl -X POST http://localhost:5000/api/deidentify \
   -H "Content-Type: application/json" \
   -d '{"text": "Patient DOB: 04/12/1985. Phone: (415) 555-9876. MRN302145."}'
+```
+
+Response:
+```json
+{
+  "masked_text": "Patient DOB: [DATE]. Phone: [PHONE]. [MRN].",
+  "entity_count": 3,
+  "entity_types": {"DATE": 1, "PHONE": 1, "MRN": 1},
+  "is_valid": true,
+  "changes": []
+}
+```
+
+---
+
+## Running Tests
+
+```bash
+# Full test suite
+pytest tests/ -v
+
+# With coverage report
+pytest --cov=src --cov-report=term-missing tests/
 ```
 
 ---
@@ -105,108 +126,33 @@ No Kaggle account needed — `python run_phase1.py` uses built-in synthetic data
 
 ## Build Phases
 
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 1 | Data ingestion, SQL schema, EDA (DataLoader + ClinicalEDA) | ✅ Complete |
-| 2 | Hybrid NER pipeline — regex + spaCy, 21 unit tests | ✅ Complete |
-| 3 | DataCleaner (pre/post-NER) + AuditLogger, 24 unit tests | ✅ Complete |
-| 4 | Flask REST API + Chart.js dashboard, 22 unit tests | ✅ Complete |
-| 5 | Docker containerization + gunicorn + smoke test | ✅ Complete |
+| Phase | Description | Tests | Status |
+|-------|-------------|-------|--------|
+| 1 | Data ingestion, SQL schema, EDA (DataLoader + ClinicalEDA) | — | ✅ Complete |
+| 2 | Hybrid NER pipeline — regex + spaCy | 21 | ✅ Complete |
+| 3 | DataCleaner (pre/post-NER) + AuditLogger | 50 | ✅ Complete |
+| 4 | Flask REST API + Chart.js dashboard | 39 | ✅ Complete |
+| 5 | Docker containerization + gunicorn + smoke test | — | ✅ Complete |
 
 ---
 
 ## Tech Stack
 
-Python 3.11 · spaCy · pandas · SQLAlchemy · Flask · gunicorn · Docker · docker-compose
-
-## JD Requirements Covered
-
-- ✅ Python OOP (4 classes: DataLoader, NERPipeline, DataCleaner, AuditLogger)
-- ✅ SQL — SQLite + SQLAlchemy ORM, analytical cross-table queries
-- ✅ Unstructured clinical data — free-text NER and masking
-- ✅ EDA on clinical datasets — 5 chart types via ClinicalEDA
-- ✅ Flask REST API — 5 routes, consistent error codes
-- ✅ Docker deployment — prod-grade Dockerfile, HEALTHCHECK, gunicorn
-- ✅ NLP/ML — hybrid regex + spaCy model, PHI anomaly detection
-
+Python 3.11 · spaCy · pandas · SQLAlchemy · Flask · gunicorn · Docker · docker-compose · pytest
 
 ---
 
-## Architecture
-
-```
-data/
-  raw/              ← MTSamples CSV or synthetic notes
-  clinicalner.db    ← SQLite (clinical_notes, processed_notes, audit_log)
-  eda_outputs/      ← EDA charts (PNG)
-src/
-  utils/
-    data_loader.py  ← DataLoader class (ingestion + SQL)
-    eda.py          ← ClinicalEDA class (5 chart types)
-  pipeline/
-    ner_pipeline.py   ← NERPipeline class (Phase 2)
-    data_cleaner.py   ← DataCleaner class (Phase 3)
-    audit_logger.py   ← AuditLogger class (Phase 3)
-  api/
-    app.py            ← Flask app (Phase 4)
-    routes.py         ← API routes
-tests/
-  test_ner_pipeline.py  ← Phase 2 tests
-  test_phase3.py        ← Phase 3 tests
-docker/
-  Dockerfile
-docker-compose.yml
-run_phase1.py
-run_phase2.py
-run_phase3.py
-```
-
-## Quick Start
-
-```bash
-# 1. Clone & create venv
-git clone <repo>
-cd ClinicalNER
-python -m venv venv && source venv/bin/activate
-
-# 2. Install dependencies
-pip install -r requirements.txt
-python -m spacy download en_core_web_sm
-
-# 3. Run Phase 1 (synthetic data, no Kaggle needed)
-python run_phase1.py
-
-# 4. Run Phase 1 with real MTSamples (after downloading)
-#    → place mtsamples.csv in data/raw/
-python run_phase1.py --real
-```
-
-## Dataset
-
-**MTSamples** — 4,999 real clinical transcriptions across 40 medical specialties.
-Download: https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions
-
-Alternatively, `run_phase1.py` (no flags) uses the built-in synthetic dataset — 500 notes with realistic PHI patterns across 10 specialties.
-
-## Build Phases
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 1 | Data ingestion, SQL schema, EDA | ✅ Complete |
-| 2 | NLP/NER pipeline (spaCy + OOP) | 🔄 Next |
-| 3 | Data cleaning + audit logging | ⏳ |
-| 4 | Flask REST API + dashboard | ⏳ |
-| 5 | Docker + cloud deployment | ⏳ |
-
-## Tech Stack
-
-Python 3.11 · spaCy · HuggingFace Transformers · Pandas · SQLAlchemy · Flask · Docker · AWS EC2
-
 ## JD Requirements Covered
 
-- ✅ Python OOP (DataLoader, ClinicalEDA classes)
-- ✅ SQL (SQLAlchemy + raw SQL queries)
-- ✅ EDA on clinical datasets
-- ✅ Unstructured data handling (clinical free-text)
-- ✅ Flask REST API (Phase 4)
-- ✅ Docker deployment (Phase 5)
+| Requirement | Implementation |
+|---|---|
+| Python / OOP | 4 classes: DataLoader, NERPipeline, DataCleaner, AuditLogger |
+| SQL | SQLite + SQLAlchemy ORM, analytical cross-table queries |
+| Unstructured clinical data | Free-text NER and masking on MTSamples |
+| EDA | 5 chart types via ClinicalEDA |
+| ML models | Hybrid regex + spaCy NER pipeline |
+| Anomaly detection | Residual PHI scanning in DataCleaner |
+| Flask / Django | 5 REST routes, consistent HTTP status codes |
+| Docker | Production Dockerfile, HEALTHCHECK, gunicorn |
+| Cloud deployment | Docker-ready, gunicorn WSGI server |
+| Test coverage | 110 tests, 81% coverage |
