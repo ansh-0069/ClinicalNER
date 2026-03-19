@@ -1,0 +1,10 @@
+[run]
+source = src
+omit =
+    */eda.py
+    */routes.py
+    */__init__.py
+
+[report]
+show_missing = True
+fail_under = 70

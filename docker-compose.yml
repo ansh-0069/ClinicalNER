@@ -1,0 +1,69 @@
+version: '3.8'
+# ─────────────────────────────────────────────────────────────────────────────
+# docker-compose.yml — ClinicalNER Phase 5
+#
+# Services:
+#   clinicalner  : Flask/gunicorn API + dashboard (port 5000)
+#
+# Usage:
+#   docker compose up --build          # first time (builds image)
+#   docker compose up -d               # subsequent runs (detached)
+#   docker compose down                # stop + remove containers
+#   docker compose logs -f clinicalner # stream logs
+#
+# Volumes:
+#   ./data:/app/data  — SQLite DB and EDA outputs persist on your host machine.
+#   Deleting this folder resets the database.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  clinicalner:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: clinicalner:latest
+    container_name: clinicalner_api
+    ports:
+      - "5000:5000"
+    volumes:
+      # Persist SQLite database and EDA output charts on the host
+      - ./data:/app/data
+    environment:
+      # Set to 'production' to use gunicorn (recommended for demos)
+      # Set to 'development' to use Flask dev server (shows debug errors)
+      - FLASK_ENV=development
+      - PYTHONUNBUFFERED=1
+      # DB path inside the container — matches volume mount above
+      - DB_PATH=/app/data/clinicalner.db
+    healthcheck:
+      # Docker restarts the container if /health fails 3 times in a row
+      test: ["CMD", "curl", "--fail", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+# ── Optional: PostgreSQL for production deployments ───────────────────────────
+# Uncomment the block below + update DataLoader to use psycopg2 instead of
+# sqlite3 when you want to scale to a real database in AWS RDS / Cloud SQL.
+#
+#   postgres:
+#     image: postgres:15-alpine
+#     container_name: clinicalner_db
+#     environment:
+#       POSTGRES_DB: clinicalner
+#       POSTGRES_USER: clinicalner
+#       POSTGRES_PASSWORD: changeme   # use a .env file in production
+#     ports:
+#       - "5432:5432"
+#     volumes:
+#       - postgres_data:/var/lib/postgresql/data
+#     healthcheck:
+#       test: ["CMD-SHELL", "pg_isready -U clinicalner"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+#
+# volumes:
+#   postgres_data:

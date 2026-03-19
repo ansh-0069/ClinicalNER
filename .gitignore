@@ -1,0 +1,40 @@
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+
+# ─── Virtual environment ────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+
+# ─── IDE / Editor ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── Testing / Coverage ─────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.coveragec
+
+# ─── Data (generated at runtime — not source code) ──────────────────────────
+data/clinicalner.db
+data/raw/*.csv
+data/eda_outputs/
+
+# ─── Environment variables ──────────────────────────────────────────────────
+.env
+.env.*
+
+# ─── OS files ────────────────────────────────────────────────────────────────
+Thumbs.db
+Desktop.ini
+.DS_Store
