@@ -67,21 +67,21 @@ docker compose logs -f clinicalner
 docker compose down
 ```
 
-Container auto-seeds the database with 500 synthetic notes on first boot.  
+Container auto-seeds the database with 500 synthetic notes on first boot.
 Dashboard: **http://localhost:5000/dashboard**
 
 ---
 
 ## API Endpoints
 
-| Method | Route | Description |
-|--------|-------|-------------|
-| `GET`  | `/health` | Liveness probe (Docker / cloud LB) |
-| `POST` | `/api/deidentify` | De-identify a clinical note |
-| `GET`  | `/api/stats` | Corpus + audit statistics (JSON) |
-| `GET`  | `/api/note/<id>` | Fetch a processed note by ID |
-| `GET`  | `/dashboard` | Live EDA dashboard (Chart.js) |
-| `GET`  | `/report/<id>` | Before/after diff view |
+| Method   | Route               | Description                        |
+| -------- | ------------------- | ---------------------------------- |
+| `GET`  | `/health`         | Liveness probe (Docker / cloud LB) |
+| `POST` | `/api/deidentify` | De-identify a clinical note        |
+| `GET`  | `/api/stats`      | Corpus + audit statistics (JSON)   |
+| `GET`  | `/api/note/<id>`  | Fetch a processed note by ID       |
+| `GET`  | `/dashboard`      | Live EDA dashboard (Chart.js)      |
+| `GET`  | `/report/<id>`    | Before/after diff view             |
 
 ### Example
 
@@ -92,6 +92,7 @@ curl -X POST http://localhost:5000/api/deidentify \
 ```
 
 Response:
+
 ```json
 {
   "masked_text": "Patient DOB: [DATE]. Phone: [PHONE]. [MRN].",
@@ -118,7 +119,7 @@ pytest --cov=src --cov-report=term-missing tests/
 
 ## Dataset
 
-**MTSamples** — 4,999 real clinical transcriptions across 40 medical specialties.  
+**MTSamples** — 4,999 real clinical transcriptions across 40 medical specialties.
 Download: https://www.kaggle.com/datasets/tboyle10/medicaltranscriptions
 
 No Kaggle account needed — `python run_phase1.py` uses built-in synthetic data (500 notes with realistic PHI patterns).
@@ -127,13 +128,13 @@ No Kaggle account needed — `python run_phase1.py` uses built-in synthetic data
 
 ## Build Phases
 
-| Phase | Description | Tests | Status |
-|-------|-------------|-------|--------|
-| 1 | Data ingestion, SQL schema, EDA (DataLoader + ClinicalEDA) | — | ✅ Complete |
-| 2 | Hybrid NER pipeline — regex + spaCy | 21 | ✅ Complete |
-| 3 | DataCleaner (pre/post-NER) + AuditLogger | 50 | ✅ Complete |
-| 4 | Flask REST API + Chart.js dashboard | 39 | ✅ Complete |
-| 5 | Docker containerization + gunicorn + smoke test | — | ✅ Complete |
+| Phase | Description                                                | Tests | Status      |
+| ----- | ---------------------------------------------------------- | ----- | ----------- |
+| 1     | Data ingestion, SQL schema, EDA (DataLoader + ClinicalEDA) | —    | ✅ Complete |
+| 2     | Hybrid NER pipeline — regex + spaCy                       | 21    | ✅ Complete |
+| 3     | DataCleaner (pre/post-NER) + AuditLogger                   | 50    | ✅ Complete |
+| 4     | Flask REST API + Chart.js dashboard                        | 39    | ✅ Complete |
+| 5     | Docker containerization + gunicorn + smoke test            | —    | ✅ Complete |
 
 ---
 
@@ -145,15 +146,15 @@ Python 3.11 · spaCy · pandas · SQLAlchemy · Flask · gunicorn · Docker · d
 
 ## JD Requirements Covered
 
-| Requirement | Implementation |
-|---|---|
-| Python / OOP | 4 classes: DataLoader, NERPipeline, DataCleaner, AuditLogger |
-| SQL | SQLite + SQLAlchemy ORM, analytical cross-table queries |
-| Unstructured clinical data | Free-text NER and masking on MTSamples |
-| EDA | 5 chart types via ClinicalEDA |
-| ML models | Hybrid regex + spaCy NER pipeline |
-| Anomaly detection | Residual PHI scanning in DataCleaner |
-| Flask / Django | 5 REST routes, consistent HTTP status codes |
-| Docker | Production Dockerfile, HEALTHCHECK, gunicorn |
-| Cloud deployment | Docker-ready, gunicorn WSGI server |
-| Test coverage | 110 tests, 81% coverage |
+| Requirement                | Implementation                                               |
+| -------------------------- | ------------------------------------------------------------ |
+| Python / OOP               | 4 classes: DataLoader, NERPipeline, DataCleaner, AuditLogger |
+| SQL                        | SQLite + SQLAlchemy ORM, analytical cross-table queries      |
+| Unstructured clinical data | Free-text NER and masking on MTSamples                       |
+| EDA                        | 5 chart types via ClinicalEDA                                |
+| ML models                  | Hybrid regex + spaCy NER pipeline                            |
+| Anomaly detection          | Residual PHI scanning in DataCleaner                         |
+| Flask / Django             | 5 REST routes, consistent HTTP status codes                  |
+| Docker                     | Production Dockerfile, HEALTHCHECK, gunicorn                 |
+| Cloud deployment           | Docker-ready, gunicorn WSGI server                           |
+| Test coverage              | 110 tests, 81% coverage                                      |
