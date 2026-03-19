@@ -8,6 +8,7 @@
 ![Docker](https://img.shields.io/badge/docker-ready-blue)
 ![Flask](https://img.shields.io/badge/flask-REST%20API-lightgrey)
 
+
 > **Portfolio Project** — Built for the Associate Clinical Programmer JD (0–2 yrs exp)
 
 An end-to-end NLP pipeline that ingests unstructured clinical notes, extracts PHI entities (names, dates, hospitals, phone numbers, MRNs), de-identifies the text, and serves results via a Flask REST API — all containerized with Docker.
