@@ -1,5 +1,6 @@
 # ClinicalNER — NLP De-identification Pipeline
 
+![CI](https://github.com/ansh-0069/ClinicalNER/actions/workflows/tests.yml/badge.svg)
 ![Tests](https://img.shields.io/badge/tests-110%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-81%25-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.11-blue)
