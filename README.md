@@ -3,6 +3,7 @@
 ![CI](https://github.com/ansh-0069/ClinicalNER/actions/workflows/tests.yml/badge.svg)
 ![Tests](https://img.shields.io/badge/tests-192%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)
+![Live](https://img.shields.io/badge/live-railway-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 ![spaCy](https://img.shields.io/badge/spaCy-3.x-09a3d5)
 ![Docker](https://img.shields.io/badge/docker-ready-blue)
@@ -11,6 +12,23 @@
 > **Portfolio Project for Associate Clinical Programmer Role**
 
 An end-to-end NLP pipeline that automates PHI de-identification in clinical trial data, reducing manual processing time by 85% while maintaining 99%+ accuracy and full regulatory compliance.
+
+## Live Demo
+
+Frontend + API are deployed on Railway:
+
+https://thorough-mercy-production-6ca9.up.railway.app/
+
+| Page | URL |
+| --- | --- |
+| Landing page | https://thorough-mercy-production-6ca9.up.railway.app/ |
+| Dashboard | https://thorough-mercy-production-6ca9.up.railway.app/dashboard |
+| Stats | https://thorough-mercy-production-6ca9.up.railway.app/stats |
+| API Explorer | https://thorough-mercy-production-6ca9.up.railway.app/api-explorer |
+| System Status | https://thorough-mercy-production-6ca9.up.railway.app/system-status |
+| Report Summary | https://thorough-mercy-production-6ca9.up.railway.app/report/summary |
+| Raw Summary JSON | https://thorough-mercy-production-6ca9.up.railway.app/api/report/summary |
+| Health probe | https://thorough-mercy-production-6ca9.up.railway.app/health |
 
 ---
 
@@ -77,7 +95,7 @@ ClinicalNER/
 │   │   ├── data_cleaner.py   ← DataCleaner class (pre/post-NER cleaning)
 │   │   └── audit_logger.py   ← AuditLogger class (append-only event log)
 │   └── api/
-│       └── app.py            ← Flask application factory (5 routes)
+│       └── app.py            ← Flask application factory (API + UI routes)
 ├── tests/
 │   ├── test_ner_pipeline.py  ← 21 tests
 │   ├── test_phase3.py        ← 50 tests (DataCleaner + AuditLogger)
@@ -105,7 +123,7 @@ python -m spacy download en_core_web_sm
 
 python run_phase1.py   # seed 500 synthetic notes
 python run_phase4.py   # start Flask on :5000
-# open http://localhost:5000/dashboard
+# open http://localhost:5000/
 ```
 
 ## Quick Start (Docker)
@@ -124,15 +142,27 @@ Dashboard: **http://localhost:5000/dashboard**
 
 ## API Endpoints
 
-| Method   | Route                        | Description                                       |
-| -------- | ---------------------------- | ------------------------------------------------- |
-| `GET`  | `/health`                  | Liveness probe (Docker / cloud LB)                |
-| `POST` | `/api/deidentify`          | De-identify a clinical note                       |
+| Method | Route | Description |
+| --- | --- | --- |
+| `GET` | `/health` | Liveness probe (Docker / cloud LB) |
+| `POST` | `/api/deidentify` | De-identify a clinical note |
+| `GET` | `/api/note/<id>` | Fetch a processed note by ID |
+| `GET` | `/api/stats` | Corpus + audit statistics (JSON) |
 | `POST` | `/api/predict-readmission` | Predict readmission risk from note-level features |
-| `GET`  | `/api/stats`               | Corpus + audit statistics (JSON)                  |
-| `GET`  | `/api/note/<id>`           | Fetch a processed note by ID                      |
-| `GET`  | `/dashboard`               | Live EDA dashboard (Chart.js)                     |
-| `GET`  | `/report/<id>`             | Before/after diff view                            |
+| `POST` | `/api/anomaly-scan` | IsolationForest anomaly scan |
+| `GET` | `/api/report/summary` | Study summary report (JSON) |
+
+## UI Routes
+
+| Method | Route | Description |
+| --- | --- | --- |
+| `GET` | `/` | Primary landing page |
+| `GET` | `/dashboard` | Dashboard page |
+| `GET` | `/stats` | Stats page |
+| `GET` | `/system-status` | System status page |
+| `GET` | `/api-explorer` | Interactive API explorer |
+| `GET` | `/report/<id>` | Before/after note diff |
+| `GET` | `/report/summary` | Human-readable study summary |
 
 ### Example
 
@@ -327,7 +357,6 @@ high_risk = loader.sql_query(QUERY_CATALOG['high_risk_notes'])
 - **[CLINICAL_USE_CASES.md](CLINICAL_USE_CASES.md)** — 6 real-world use cases with ROI analysis
 - **[COMPLIANCE.md](COMPLIANCE.md)** — HIPAA, ICH E6, 21 CFR Part 11 compliance documentation
 - **[STRUCTURE.md](STRUCTURE.md)** — Project architecture and file organization
-- **[UI_REDESIGN.md](UI_REDESIGN.md)** — Premium editorial UI design documentation
 
 ---
 
@@ -390,10 +419,10 @@ Clinical Trials • HIPAA • ICH E6 (GCP) • 21 CFR Part 11 • CDISC • Data
 
 ## 📞 Contact
 
-For questions about this project 
+For questions about this project:
 
-- **GitHub**: [github.com/ansh-0069
-  ](https://github.com/ansh-0069)
+- **GitHub**: [github.com/ansh-0069](https://github.com/ansh-0069)
+- **Live Demo**: [thorough-mercy-production-6ca9.up.railway.app](https://thorough-mercy-production-6ca9.up.railway.app)
 
 ---
 
