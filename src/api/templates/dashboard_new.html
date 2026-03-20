@@ -887,7 +887,7 @@ async function runDeidentify() {
     const res = await fetch("/api/deidentify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: input, save: false })
+      body: JSON.stringify({ text: input, save: true })
     });
 
     const payload = await res.json();
