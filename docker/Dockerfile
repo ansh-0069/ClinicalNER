@@ -49,12 +49,12 @@ ENV PYTHONDONTWRITEBYTECODE=1
 EXPOSE 5000
 
 # Health check — Docker will mark container unhealthy if this fails
-# Retries 3 times with 10s intervals before declaring unhealthy
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"
+# Uses Render's dynamic PORT and allows slower first boot.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+    CMD sh -c "python -c \"import os,urllib.request; p=os.getenv('PORT','5000'); urllib.request.urlopen(f'http://localhost:{p}/health')\""
 
 # Entrypoint: seed the database then start Flask via gunicorn
 # gunicorn is production-grade — never use Flask dev server in production
-CMD ["sh", "-c", "python run_phase1.py && python run_phase2.py && python run_phase3.py && \
-     gunicorn --bind 0.0.0.0:5000 --workers 2 --timeout 120 \
+CMD ["sh", "-c", "python run_phase1.py && \
+     gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 2 --timeout 120 \
      'src.api.app:create_app()'"]
