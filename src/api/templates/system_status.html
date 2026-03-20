@@ -16,6 +16,13 @@ body{font-family:var(--sans);background:radial-gradient(1200px 700px at 85% -10%
 .hero .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--signal)}
 .hero h1{margin-top:12px;font-family:var(--display);font-size:clamp(44px,8vw,104px);line-height:.9;letter-spacing:-.03em}
 .hero p{margin-top:14px;color:var(--muted);max-width:56ch;line-height:1.7}
+.story-grid{margin-top:30px;display:grid;grid-template-columns:1.1fr 1fr;gap:1px;background:var(--line)}
+.story-fixed{background:rgba(10,12,13,.95);min-height:66vh;position:sticky;top:0;display:grid;place-items:center}
+.story-badge{width:min(40vw,320px);aspect-ratio:1/1;border:1px solid rgba(200,255,69,.3);border-radius:50%;display:grid;place-items:center;font-family:var(--display);font-size:clamp(34px,6vw,78px);color:var(--signal)}
+.story-flow{background:rgba(10,12,13,.95)}
+.story-step{min-height:52vh;padding:42px 24px;display:flex;flex-direction:column;justify-content:center;border-top:1px solid rgba(242,244,239,.08);opacity:0;transform:translateY(34px)}
+.story-step h3{font-family:var(--display);font-size:clamp(26px,3.6vw,46px);line-height:.95}
+.story-step p{margin-top:10px;max-width:34ch;color:var(--muted);line-height:1.7}
 .status-grid{margin-top:30px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line)}
 .card{background:rgba(10,12,13,.95);padding:22px 18px}
 .card .k{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(242,244,239,.45)}
@@ -30,7 +37,7 @@ body{font-family:var(--sans);background:radial-gradient(1200px 700px at 85% -10%
 .dock a{color:rgba(242,244,239,.64);text-decoration:none;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;border:1px solid transparent;padding:9px 12px}
 .dock a.active,.dock a:hover{color:var(--paper);border-color:rgba(200,255,69,.42);background:var(--soft)}
 @media(max-width:980px){.status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.routes{grid-template-columns:1fr}}
-@media(max-width:760px){.status-grid{grid-template-columns:1fr}.dock{left:10px;right:10px;transform:none;width:calc(100vw - 20px);overflow-x:auto}.dock a{white-space:nowrap}}
+@media(max-width:760px){.story-grid{grid-template-columns:1fr}.story-fixed{position:relative;min-height:34vh}.status-grid{grid-template-columns:1fr}.dock{left:10px;right:10px;transform:none;width:calc(100vw - 20px);overflow-x:auto}.dock a{white-space:nowrap}}
 </style>
 </head>
 <body>
@@ -38,6 +45,18 @@ body{font-family:var(--sans);background:radial-gradient(1200px 700px at 85% -10%
   <div class="eyebrow">Runtime Reliability</div>
   <h1>System Status</h1>
   <p>Live operational view of health checks, throughput metrics, and service integrity signals from active endpoints.</p>
+</section>
+
+<section class="story-grid" id="story-grid">
+  <aside class="story-fixed"><div class="story-badge" id="story-badge">01</div></aside>
+  <div class="story-flow">
+    <article class="story-step" data-step="01"><h3>Probe service
+health first.</h3><p>Runtime liveness is sampled before any advanced metrics so failures surface immediately.</p></article>
+    <article class="story-step" data-step="02"><h3>Hydrate throughput
+telemetry.</h3><p>Processed volume and audit intensity are then animated into counters for quick status reading.</p></article>
+    <article class="story-step" data-step="03"><h3>Publish system
+readiness state.</h3><p>A single operational headline makes release confidence explicit for portfolio presentation.</p></article>
+  </div>
 </section>
 
 <section class="status-grid">
@@ -71,11 +90,62 @@ gsap.registerPlugin(ScrollTrigger);
 
 const MOTION = {
   revealY: 30,
-  revealDuration: 0.78,
-  revealStart: 'top 90%',
-  ease: 'expo.out',
-  counterDuration: 1.2
+  revealDuration: 0.82,
+  revealStart: 'top 88%',
+  ease: 'circ.out',
+  counterDuration: 1.25,
+  heroScale: 0.88,
+  heroOpacity: 0.14,
+  heroY: -48,
+  heroScrub: 1.25,
+  storyEnter: 0.78,
+  storyExit: 0.34,
+  storyStart: 'top 67%',
+  storyEnd: 'bottom 34%'
 };
+
+function setupAmbientSignature() {
+  gsap.to('#story-badge', {
+    boxShadow: '0 0 28px rgba(200,255,69,0.25)',
+    duration: 1.9,
+    ease: 'sine.inOut',
+    yoyo: true,
+    repeat: -1
+  });
+}
+
+function setupHeroSequence() {
+  gsap.to('.hero', {
+    scale: MOTION.heroScale,
+    opacity: MOTION.heroOpacity,
+    y: MOTION.heroY,
+    ease: 'none',
+    scrollTrigger: {
+      trigger: '.hero',
+      start: 'top top',
+      end: 'bottom top',
+      scrub: MOTION.heroScrub
+    }
+  });
+}
+
+function setupStoryPin() {
+  const badge = document.getElementById('story-badge');
+  gsap.utils.toArray('.story-step').forEach((step) => {
+    ScrollTrigger.create({
+      trigger: step,
+      start: MOTION.storyStart,
+      end: MOTION.storyEnd,
+      onEnter: () => {
+        gsap.to(step, { opacity: 1, y: 0, duration: MOTION.storyEnter, ease: MOTION.ease });
+        badge.textContent = step.dataset.step;
+      },
+      onLeaveBack: () => {
+        gsap.to(step, { opacity: 0, y: 24, duration: MOTION.storyExit, ease: 'power2.inOut' });
+      }
+    });
+  });
+}
 
 gsap.utils.toArray('.animate-up').forEach((el) => {
   gsap.fromTo(el, { opacity: 0, y: MOTION.revealY }, { opacity: 1, y: 0, duration: MOTION.revealDuration, ease: MOTION.ease, scrollTrigger: { trigger: el, start: MOTION.revealStart, once: true } });
@@ -108,6 +178,9 @@ async function checkStatus() {
 
 checkStatus();
 setInterval(checkStatus, 30000);
+setupHeroSequence();
+setupStoryPin();
+setupAmbientSignature();
 </script>
 </body>
 </html>

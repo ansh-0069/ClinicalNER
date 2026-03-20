@@ -636,15 +636,19 @@ gsap.registerPlugin(ScrollTrigger);
 
 const MOTION = {
   revealY: 30,
-  revealDuration: 0.78,
-  revealStart: "top 90%",
+  revealDuration: 0.82,
+  revealStart: "top 88%",
   ease: "expo.out",
   stagger: 0.06,
-  counterDuration: 1.2,
-  storyEnter: 0.72,
-  storyExit: 0.36,
+  counterDuration: 1.25,
+  storyEnter: 0.78,
+  storyExit: 0.34,
   swapFade: 0.18,
-  swapIn: 0.32
+  swapIn: 0.32,
+  heroScale: 0.88,
+  heroOpacity: 0.14,
+  heroY: -52,
+  heroScrub: 1.25
 };
 
 const knownTopKeys = new Set([
@@ -745,7 +749,7 @@ function setupStoryScroll() {
   document.querySelectorAll(".story-card").forEach((card) => {
     ScrollTrigger.create({
       trigger: card,
-      start: "top 65%",
+      start: "top 67%",
       end: "bottom 35%",
       onEnter: () => {
         gsap.to(card, { opacity: 1, y: 0, duration: MOTION.storyEnter, ease: MOTION.ease });
@@ -771,6 +775,21 @@ function setupStoryScroll() {
         gsap.to(card, { opacity: 0, y: 36, duration: MOTION.storyExit, ease: "power2.inOut" });
       }
     });
+  });
+}
+
+function setupHeroSequence() {
+  gsap.to('.hero', {
+    scale: MOTION.heroScale,
+    opacity: MOTION.heroOpacity,
+    y: MOTION.heroY,
+    ease: 'none',
+    scrollTrigger: {
+      trigger: '.hero',
+      start: 'top top',
+      end: 'bottom top',
+      scrub: MOTION.heroScrub
+    }
   });
 }
 
@@ -801,7 +820,17 @@ function setupPinnedSections() {
     start: "top top",
     end: "bottom bottom",
     pin: ".stage-visual",
-    pinSpacing: false
+    pinSpacing: false,
+    anticipatePin: 1
+  });
+}
+
+function setupAmbientSignature() {
+  gsap.to('.orb-shell', {
+    rotate: 360,
+    duration: 60,
+    ease: 'none',
+    repeat: -1
   });
 }
 
@@ -888,9 +917,11 @@ async function runDeidentify() {
 
 document.getElementById("demo-btn").addEventListener("click", runDeidentify);
 
+setupHeroSequence();
 setupStoryScroll();
 setupPinnedSections();
 setupRevealAnimations();
+setupAmbientSignature();
 loadStats();
 </script>
 </body>

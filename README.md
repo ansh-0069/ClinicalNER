@@ -44,21 +44,21 @@ Automated de-identification pipeline with quality validation:
 
 ---
 
-## Clinical Domain Context
+## Regulatory context
 
-This pipeline addresses PHI de-identification requirements under:
-- **HIPAA Safe Harbor** (45 CFR §164.514) — 18 PHI identifier categories
-- **ICH E6 (R2) GCP** — audit trail requirements for clinical trial data
-- **21 CFR Part 11** — electronic records in regulated environments
+This pipeline addresses PHI de-identification under:
+- **HIPAA Safe Harbor** (45 CFR §164.514) — all 18 PHI identifier categories
+- **ICH E6 (R2) GCP** — audit trail satisfies electronic record requirements
+- **21 CFR Part 11** — append-only AuditLogger supports electronic signature readiness
 
-Entity types mapped to CDISC CDASH domains:
-
-| Entity | CDASH Domain | Field |
-| --- | --- | --- |
-| DATE | DM / DS | DMDTC / DSSTDTC |
-| MRN | DM | USUBJID |
-| HOSPITAL | DM | SITEID |
-| AGE | DM | AGE |
+| PHI Entity | CDISC CDASH Domain | Field      |
+|-----------|-------------------|------------|
+| DATE      | DM / DS           | DMDTC      |
+| DOB       | DM                | BRTHDTC    |
+| MRN       | DM                | USUBJID    |
+| HOSPITAL  | DM                | SITEID     |
+| AGE       | DM                | AGE        |
+| PHONE     | DM                | DMCONTACT  |
 
 ---
 

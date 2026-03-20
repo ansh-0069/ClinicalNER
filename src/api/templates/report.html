@@ -16,6 +16,13 @@ body{font-family:var(--sans);background:radial-gradient(1200px 700px at 85% -10%
 .hero .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--signal)}
 .hero h1{margin-top:12px;font-family:var(--display);font-size:clamp(42px,8vw,98px);line-height:.9;letter-spacing:-.03em}
 .hero p{margin-top:14px;max-width:58ch;color:var(--muted);line-height:1.7}
+.story-rail{margin-top:28px;display:grid;grid-template-columns:1.1fr 1fr;gap:1px;background:var(--line)}
+.story-pin{background:rgba(10,12,13,.95);min-height:62vh;position:sticky;top:0;display:grid;place-items:center}
+.story-core{width:min(40vw,300px);aspect-ratio:1/1;border:1px solid rgba(200,255,69,.32);border-radius:50%;display:grid;place-items:center;font-family:var(--display);font-size:clamp(34px,6vw,76px);color:var(--signal)}
+.story-steps{background:rgba(10,12,13,.95)}
+.story-step{min-height:48vh;padding:40px 22px;display:flex;flex-direction:column;justify-content:center;border-top:1px solid rgba(242,244,239,.08);opacity:0;transform:translateY(34px)}
+.story-step h3{font-family:var(--display);font-size:clamp(26px,3.6vw,44px);line-height:.96}
+.story-step p{margin-top:10px;max-width:34ch;color:var(--muted);line-height:1.7}
 .band{margin-top:30px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line)}
 .metric{background:rgba(10,12,13,.95);padding:20px 16px}
 .metric .k{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(242,244,239,.45)}
@@ -30,6 +37,7 @@ pre{font-family:var(--mono);font-size:12px;line-height:1.75;white-space:pre-wrap
 .dock a:hover{color:var(--paper);border-color:rgba(200,255,69,.42);background:var(--soft)}
 @media(max-width:980px){.band{grid-template-columns:1fr}.diff{grid-template-columns:1fr}}
 @media(max-width:760px){.dock{left:10px;right:10px;transform:none;width:calc(100vw - 20px);overflow-x:auto}.dock a{white-space:nowrap}}
+@media(max-width:760px){.story-rail{grid-template-columns:1fr}.story-pin{position:relative;min-height:34vh}}
 </style>
 </head>
 <body>
@@ -37,6 +45,18 @@ pre{font-family:var(--mono);font-size:12px;line-height:1.75;white-space:pre-wrap
   <div class="eyebrow">De-identification Diff Report</div>
   <h1>Note {{ note_id }}</h1>
   <p>Specialty {{ specialty }} with full before/after view for transparent validation and clinical QA workflows.</p>
+</section>
+
+<section class="story-rail" id="story-rail">
+  <aside class="story-pin"><div class="story-core" id="story-core">01</div></aside>
+  <div class="story-steps">
+    <article class="story-step" data-step="01"><h3>Load source and
+masked records.</h3><p>Original and redacted versions are paired with deterministic note identity for review integrity.</p></article>
+    <article class="story-step" data-step="02"><h3>Emphasize PHI
+replacement tokens.</h3><p>All `[TOKEN]` markers are highlighted to make transformation outcomes audit-friendly at a glance.</p></article>
+    <article class="story-step" data-step="03"><h3>Surface portfolio-grade
+comparison.</h3><p>This cinematic diff is designed for both compliance storytelling and creative frontend presentation.</p></article>
+  </div>
 </section>
 
 <section class="band">
@@ -69,10 +89,61 @@ gsap.registerPlugin(ScrollTrigger);
 
 const MOTION = {
   revealY: 30,
-  revealDuration: 0.78,
-  revealStart: 'top 90%',
-  ease: 'expo.out'
+  revealDuration: 0.82,
+  revealStart: 'top 88%',
+  ease: 'power3.out',
+  heroScale: 0.88,
+  heroOpacity: 0.14,
+  heroY: -48,
+  heroScrub: 1.25,
+  storyEnter: 0.78,
+  storyExit: 0.34,
+  storyStart: 'top 67%',
+  storyEnd: 'bottom 34%'
 };
+
+function setupAmbientSignature() {
+  gsap.to('#story-core', {
+    scale: 1.03,
+    duration: 2.2,
+    ease: 'sine.inOut',
+    yoyo: true,
+    repeat: -1
+  });
+}
+
+function setupHeroSequence() {
+  gsap.to('.hero', {
+    scale: MOTION.heroScale,
+    opacity: MOTION.heroOpacity,
+    y: MOTION.heroY,
+    ease: 'none',
+    scrollTrigger: {
+      trigger: '.hero',
+      start: 'top top',
+      end: 'bottom top',
+      scrub: MOTION.heroScrub
+    }
+  });
+}
+
+function setupStoryPin() {
+  const core = document.getElementById('story-core');
+  gsap.utils.toArray('.story-step').forEach((step) => {
+    ScrollTrigger.create({
+      trigger: step,
+      start: MOTION.storyStart,
+      end: MOTION.storyEnd,
+      onEnter: () => {
+        gsap.to(step, { opacity: 1, y: 0, duration: MOTION.storyEnter, ease: MOTION.ease });
+        core.textContent = step.dataset.step;
+      },
+      onLeaveBack: () => {
+        gsap.to(step, { opacity: 0, y: 24, duration: MOTION.storyExit, ease: 'power2.inOut' });
+      }
+    });
+  });
+}
 
 gsap.utils.toArray('.animate-up').forEach((el) => {
   gsap.fromTo(el, { opacity: 0, y: MOTION.revealY }, { opacity: 1, y: 0, duration: MOTION.revealDuration, ease: MOTION.ease, scrollTrigger: { trigger: el, start: MOTION.revealStart, once: true } });
@@ -80,6 +151,9 @@ gsap.utils.toArray('.animate-up').forEach((el) => {
 
 const preview = document.getElementById('masked-preview');
 preview.innerHTML = preview.textContent.replace(/\[([A-Z_]+)\]/g, (m) => `<span class="mask">${m}</span>`);
+setupHeroSequence();
+setupStoryPin();
+setupAmbientSignature();
 </script>
 </body>
 </html>

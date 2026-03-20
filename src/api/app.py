@@ -393,20 +393,26 @@ def _register_ui_routes(app: Flask) -> None:
                 )
             except Exception:
                 return f"<h3>Note {note_id} not found</h3>", 404
-            proc_df = loader.sql_query(
-                f"SELECT * FROM processed_notes WHERE note_id = {note_id} "
-                f"ORDER BY id DESC LIMIT 1"
-            )
 
             if orig_df is None or orig_df.empty:
                 return f"<h3>Note {note_id} not found</h3>", 404
 
             orig_text = orig_df.iloc[0].get("transcription", "")
-            proc_text = proc_df.iloc[0].get("masked_text", "Not yet processed") \
-                if not proc_df.empty else "Not yet processed"
             specialty = orig_df.iloc[0].get("medical_specialty", "Unknown")
-            entity_count = proc_df.iloc[0].get("entity_count", 0) \
-                if not proc_df.empty else 0
+            proc_text = "Not yet processed"
+            entity_count = 0
+
+            # processed_notes may not exist yet if phase 2 has not been run.
+            try:
+              proc_df = loader.sql_query(
+                f"SELECT * FROM processed_notes WHERE note_id = {note_id} "
+                f"ORDER BY id DESC LIMIT 1"
+              )
+              if not proc_df.empty:
+                proc_text = proc_df.iloc[0].get("masked_text", "Not yet processed")
+                entity_count = proc_df.iloc[0].get("entity_count", 0)
+            except Exception:
+              pass
 
             return render_template(
               "report.html",
@@ -424,21 +430,38 @@ def _register_ui_routes(app: Flask) -> None:
         """Study-level aggregate status report by medical specialty."""
         loader: DataLoader = app.config["LOADER"]
         try:
-            stats = loader.sql_query(
-                """
-                SELECT
-                  cn.medical_specialty,
-                  COUNT(cn.note_id)                           AS total_notes,
-                  COUNT(pn.id)                                AS processed_notes,
-                  ROUND(AVG(pn.entity_count), 1)              AS avg_phi_per_note,
-                  SUM(pn.entity_count)                        AS total_phi_found,
-                  ROUND(COUNT(pn.id) * 100.0 / COUNT(cn.note_id), 1) AS pct_processed
-                FROM clinical_notes cn
-                LEFT JOIN processed_notes pn ON cn.note_id = pn.note_id
-                GROUP BY cn.medical_specialty
-                ORDER BY total_notes DESC
-                """
-            ).to_dict(orient="records")
+            try:
+                stats = loader.sql_query(
+                    """
+                    SELECT
+                      cn.medical_specialty,
+                      COUNT(cn.note_id)                           AS total_notes,
+                      COUNT(pn.id)                                AS processed_notes,
+                      ROUND(AVG(pn.entity_count), 1)              AS avg_phi_per_note,
+                      SUM(pn.entity_count)                        AS total_phi_found,
+                      ROUND(COUNT(pn.id) * 100.0 / COUNT(cn.note_id), 1) AS pct_processed
+                    FROM clinical_notes cn
+                    LEFT JOIN processed_notes pn ON cn.note_id = pn.note_id
+                    GROUP BY cn.medical_specialty
+                    ORDER BY total_notes DESC
+                    """
+                ).to_dict(orient="records")
+            except Exception:
+                # Graceful fallback when processed_notes table is not created yet.
+                stats = loader.sql_query(
+                    """
+                    SELECT
+                      cn.medical_specialty,
+                      COUNT(cn.note_id) AS total_notes,
+                      0 AS processed_notes,
+                      0.0 AS avg_phi_per_note,
+                      0 AS total_phi_found,
+                      0.0 AS pct_processed
+                    FROM clinical_notes cn
+                    GROUP BY cn.medical_specialty
+                    ORDER BY total_notes DESC
+                    """
+                ).to_dict(orient="records")
             return jsonify({
               "report_type": "Study Status Summary",
               "generated_at": __import__("datetime").datetime.utcnow().isoformat(),
