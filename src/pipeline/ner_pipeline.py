@@ -58,7 +58,8 @@ class PHIEntity:
     text:   str
     start:  int
     end:    int
-    source: str = "regex"
+    source:     str   = "regex"
+    confidence: float = 0.95
 
     def __repr__(self) -> str:
         return f"PHIEntity({self.label}, '{self.text}', [{self.start}:{self.end}], src={self.source})"
@@ -206,20 +207,24 @@ class NERPipeline:
         # 5. Build result dict
         entity_dicts = [
             {"label": e.label, "text": e.text, "start": e.start,
-             "end": e.end, "source": e.source}
+             "end": e.end, "source": e.source, "confidence": e.confidence}
             for e in entities
         ]
+        avg_confidence = round(
+            sum(e.confidence for e in entities) / max(len(entities), 1), 3
+        ) if entities else 0.0
         entity_types: dict[str, int] = {}
         for e in entities:
             entity_types[e.label] = entity_types.get(e.label, 0) + 1
 
         result = {
-            "note_id":       note_id,
-            "original_text": text,
-            "masked_text":   masked_text,
-            "entities":      entity_dicts,
-            "entity_count":  len(entities),
-            "entity_types":  entity_types,
+            "note_id":        note_id,
+            "original_text":  text,
+            "masked_text":    masked_text,
+            "entities":       entity_dicts,
+            "entity_count":   len(entities),
+            "entity_types":   entity_types,
+            "avg_confidence": avg_confidence,
         }
 
         # 6. Persist to DB
@@ -307,6 +312,7 @@ class NERPipeline:
                         start=match.start(),
                         end=match.end(),
                         source="regex",
+                        confidence=0.95,
                     ))
         return found
 
@@ -323,12 +329,19 @@ class NERPipeline:
             if len(ent.text.strip()) < 3 or ent.text.strip().isdigit():
                 continue
 
+            # Derive confidence from token IOB scores
+            # token.ent_iob: 2=B, 1=I, 0=O — higher means stronger NER signal
+            scores = [tok.ent_iob for tok in ent]
+            confidence = round(
+                min(0.99, 0.70 + (sum(scores) / max(len(scores), 1)) * 0.05), 2
+            )
             found.append(PHIEntity(
                 label=phi_label,
                 text=ent.text,
                 start=ent.start_char,
                 end=ent.end_char,
                 source="spacy",
+                confidence=confidence,
             ))
         return found
 

@@ -1,0 +1,1359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClinicalNER · De-identification Platform</title>
+<meta name="description" content="Clinical NLP De-identification Pipeline — HIPAA-aware PHI masking with spaCy and machine learning.">
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,100..900;1,9..144,100..900&family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+<!-- GSAP + ScrollTrigger -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+
+<style>
+/* ─────────────────────────────────────────────────────
+   DESIGN TOKENS
+───────────────────────────────────────────────────── */
+:root {
+  --ink:        #080808;
+  --paper:      #F0EDE6;
+  --lime:       #C8F23C;
+  --lime-dim:   rgba(200,242,60,0.12);
+  --glass:      rgba(240,237,230,0.06);
+  --glass-border: rgba(240,237,230,0.1);
+  --mono:       'IBM Plex Mono', monospace;
+  --serif:      'Fraunces', Georgia, serif;
+  --sans:       'Inter', system-ui, sans-serif;
+  --ease-expo:  cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+/* ─────────────────────────────────────────────────────
+   RESET & BASE
+───────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: auto; } /* GSAP owns scroll behavior */
+body {
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.5;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: var(--ink); }
+::-webkit-scrollbar-thumb { background: var(--lime); border-radius: 2px; }
+
+/* ─────────────────────────────────────────────────────
+   NAV
+───────────────────────────────────────────────────── */
+nav {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 48px;
+  mix-blend-mode: difference;
+}
+.nav-logo {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--paper);
+}
+.nav-links {
+  display: flex;
+  gap: 36px;
+  list-style: none;
+}
+.nav-links a {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--paper);
+  text-decoration: none;
+  opacity: 0.5;
+  transition: opacity 0.3s;
+}
+.nav-links a:hover { opacity: 1; }
+
+/* ─────────────────────────────────────────────────────
+   HERO
+───────────────────────────────────────────────────── */
+#hero {
+  position: relative;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 48px;
+  overflow: hidden;
+}
+.hero-noise {
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.035'/%3E%3C/svg%3E");
+  background-size: 200px;
+  opacity: 0.6;
+  pointer-events: none;
+}
+.hero-eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--lime);
+  margin-bottom: 28px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.hero-eyebrow::before {
+  content: '';
+  display: block;
+  width: 32px;
+  height: 1px;
+  background: var(--lime);
+}
+.hero-title {
+  font-family: var(--serif);
+  font-size: clamp(64px, 10vw, 152px);
+  font-weight: 900;
+  line-height: 0.92;
+  letter-spacing: -0.03em;
+  max-width: 14ch;
+  margin-bottom: 40px;
+}
+.hero-title em {
+  font-style: italic;
+  color: var(--lime);
+}
+.hero-sub {
+  font-family: var(--sans);
+  font-size: clamp(15px, 1.4vw, 18px);
+  font-weight: 300;
+  color: rgba(240,237,230,0.55);
+  max-width: 52ch;
+  line-height: 1.7;
+}
+.hero-scroll-hint {
+  position: absolute;
+  bottom: 40px;
+  left: 48px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(240,237,230,0.3);
+}
+.scroll-line {
+  width: 48px;
+  height: 1px;
+  background: rgba(240,237,230,0.2);
+  position: relative;
+  overflow: hidden;
+}
+.scroll-line::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: var(--lime);
+  animation: scroll-march 2s ease-in-out infinite;
+}
+@keyframes scroll-march {
+  0%   { left: -100%; }
+  50%  { left: 0; }
+  100% { left: 100%; }
+}
+.hero-corner-tag {
+  position: absolute;
+  top: 48px; right: 48px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: rgba(240,237,230,0.2);
+  text-align: right;
+  line-height: 1.8;
+}
+
+/* ─────────────────────────────────────────────────────
+   DIVIDER LINE (animated)
+───────────────────────────────────────────────────── */
+.ruled-divider {
+  width: 100%;
+  height: 1px;
+  background: rgba(240,237,230,0.08);
+  position: relative;
+  overflow: hidden;
+}
+.ruled-divider-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--lime);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+/* ─────────────────────────────────────────────────────
+   STATS STRIP
+───────────────────────────────────────────────────── */
+#stats-strip {
+  padding: 120px 48px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: rgba(240,237,230,0.06);
+}
+.stat-cell {
+  background: var(--ink);
+  padding: 60px 48px;
+}
+.stat-number {
+  font-family: var(--serif);
+  font-size: clamp(60px, 8vw, 120px);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--lime);
+  display: block;
+  margin-bottom: 16px;
+}
+.stat-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(240,237,230,0.4);
+}
+.stat-desc {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 300;
+  color: rgba(240,237,230,0.25);
+  font-family: var(--sans);
+}
+
+/* ─────────────────────────────────────────────────────
+   SCROLLYTELLING / PINNED SECTION
+───────────────────────────────────────────────────── */
+#scroll-story {
+  display: flex;
+  min-height: 100vh;
+}
+.story-sticky {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  width: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 64px;
+  overflow: hidden;
+}
+.story-visual {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+}
+/* The big rotating visual in the pinned panel */
+.vis-circle {
+  width: 340px;
+  height: 340px;
+  border-radius: 50%;
+  border: 1px solid rgba(240,237,230,0.1);
+  position: relative;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.vis-circle-inner {
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  border: 1px solid rgba(200,242,60,0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.vis-step-number {
+  font-family: var(--serif);
+  font-size: 80px;
+  font-weight: 900;
+  color: var(--lime);
+  line-height: 1;
+  transition: color 0.5s;
+}
+.vis-orbit {
+  position: absolute;
+  inset: -30px;
+  border: 1px dashed rgba(200,242,60,0.1);
+  border-radius: 50%;
+  animation: spin 20s linear infinite;
+}
+.vis-orbit-dot {
+  position: absolute;
+  top: 0; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 12px var(--lime);
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Step label below circle */
+.vis-step-tag {
+  text-align: center;
+  margin-top: 36px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(240,237,230,0.3);
+  transition: color 0.5s;
+}
+
+.story-steps {
+  width: 50%;
+  padding: 15vh 64px 15vh 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.step-block {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 80px 0;
+  opacity: 0;
+  transform: translateY(40px);
+}
+.step-index {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--lime);
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.step-index::before {
+  content: '';
+  width: 24px;
+  height: 1px;
+  background: var(--lime);
+}
+.step-title {
+  font-family: var(--serif);
+  font-size: clamp(36px, 4vw, 56px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin-bottom: 24px;
+}
+.step-body {
+  font-size: 16px;
+  font-weight: 300;
+  color: rgba(240,237,230,0.55);
+  line-height: 1.75;
+  max-width: 42ch;
+}
+.step-tag {
+  display: inline-block;
+  margin-top: 28px;
+  padding: 8px 18px;
+  border: 1px solid rgba(200,242,60,0.3);
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lime);
+  background: var(--lime-dim);
+}
+
+/* ─────────────────────────────────────────────────────
+   DEMO SECTION
+───────────────────────────────────────────────────── */
+#demo {
+  padding: 140px 48px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+.section-eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--lime);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.section-eyebrow::before {
+  content: '';
+  display: block;
+  width: 24px;
+  height: 1px;
+  background: var(--lime);
+}
+.section-title {
+  font-family: var(--serif);
+  font-size: clamp(40px, 5vw, 72px);
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  margin-bottom: 64px;
+}
+.demo-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  background: rgba(240,237,230,0.06);
+}
+.demo-panel {
+  background: var(--ink);
+  padding: 40px;
+}
+.demo-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(240,237,230,0.35);
+}
+.demo-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+}
+.demo-dot.amber { background: #F59E0B; }
+.demo-dot.lime  { background: var(--lime); box-shadow: 0 0 8px var(--lime); }
+
+textarea.demo-input {
+  width: 100%;
+  min-height: 180px;
+  background: rgba(240,237,230,0.04);
+  border: 1px solid rgba(240,237,230,0.1);
+  border-radius: 4px;
+  padding: 20px;
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.7;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.3s;
+}
+textarea.demo-input:focus { border-color: rgba(200,242,60,0.4); }
+textarea.demo-input::placeholder { color: rgba(240,237,230,0.2); }
+
+.demo-btn {
+  margin-top: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 32px;
+  background: var(--lime);
+  color: var(--ink);
+  border: none;
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.2s var(--ease-expo), box-shadow 0.2s;
+}
+.demo-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(200,242,60,0.25);
+}
+.demo-btn:active { transform: translateY(0); }
+
+.demo-output {
+  min-height: 180px;
+  background: rgba(240,237,230,0.04);
+  border: 1px solid rgba(240,237,230,0.1);
+  border-radius: 4px;
+  padding: 20px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.7;
+  color: rgba(240,237,230,0.6);
+  font-style: italic;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.demo-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.phi-chip {
+  padding: 4px 12px;
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid;
+}
+
+/* ─────────────────────────────────────────────────────
+   BENCHMARK BAR CHART
+───────────────────────────────────────────────────── */
+#benchmark {
+  padding: 140px 48px;
+  border-top: 1px solid rgba(240,237,230,0.06);
+}
+.bench-layout {
+  display: grid;
+  grid-template-columns: 1fr 1.8fr;
+  gap: 80px;
+  align-items: start;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+.bench-intro .section-title { margin-bottom: 24px; }
+.bench-intro p {
+  font-size: 15px;
+  font-weight: 300;
+  color: rgba(240,237,230,0.45);
+  line-height: 1.75;
+  max-width: 38ch;
+  margin-bottom: 40px;
+}
+.bench-run-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 28px;
+  border: 1px solid rgba(200,242,60,0.35);
+  background: transparent;
+  color: var(--lime);
+  border-radius: 2px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.3s, transform 0.2s;
+}
+.bench-run-btn:hover {
+  background: var(--lime-dim);
+  transform: translateY(-1px);
+}
+.bench-chart { padding-top: 8px; }
+.bar-group {
+  margin-bottom: 36px;
+  opacity: 0;
+  transform: translateX(-20px);
+}
+.bar-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+.bar-name {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: rgba(240,237,230,0.8);
+}
+.bar-metrics {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: rgba(240,237,230,0.35);
+  display: flex;
+  gap: 20px;
+}
+.bar-track {
+  height: 6px;
+  background: rgba(240,237,230,0.06);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+.bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  width: 0%;
+  transition: none; /* GSAP handles this */
+}
+.bar-fill.lime { background: var(--lime); }
+.bar-fill.dim  { background: rgba(200,242,60,0.35); }
+.bench-legend {
+  display: flex;
+  gap: 24px;
+  margin-top: 32px;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(240,237,230,0.4);
+}
+.legend-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+}
+
+/* ─────────────────────────────────────────────────────
+   FOOTER
+───────────────────────────────────────────────────── */
+footer {
+  border-top: 1px solid rgba(240,237,230,0.06);
+  padding: 80px 48px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 40px;
+}
+.footer-mark {
+  font-family: var(--serif);
+  font-size: clamp(48px, 7vw, 100px);
+  font-weight: 900;
+  letter-spacing: -0.04em;
+  color: rgba(240,237,230,0.06);
+  line-height: 1;
+  user-select: none;
+  word-break: break-all;
+}
+.footer-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  text-align: right;
+}
+.footer-nav a {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(240,237,230,0.3);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.footer-nav a:hover { color: var(--lime); }
+.footer-copy {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: rgba(240,237,230,0.15);
+  margin-top: 8px;
+}
+
+/* Step blocks start hidden — GSAP reveals on scroll */
+.step-block { will-change: opacity, transform; }
+
+/* ─────────────────────────────────────────────────────
+   PHI TOKEN STYLES (in demo output)
+───────────────────────────────────────────────────── */
+.phi-token {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-weight: 700;
+  font-style: normal;
+  font-size: 12px;
+}
+.phi-NAME  { background: rgba(239,68,68,0.18); color: #FCA5A5; border: 1px solid rgba(239,68,68,0.3); }
+.phi-DOB   { background: rgba(249,115,22,0.18); color: #FDBA74; border: 1px solid rgba(249,115,22,0.3); }
+.phi-MRN   { background: rgba(59,130,246,0.18); color: #93C5FD; border: 1px solid rgba(59,130,246,0.3); }
+.phi-PHONE { background: rgba(168,85,247,0.18); color: #D8B4FE; border: 1px solid rgba(168,85,247,0.3); }
+.phi-DATE  { background: rgba(20,184,166,0.18); color: #5EEAD4; border: 1px solid rgba(20,184,166,0.3); }
+.phi-AGE   { background: rgba(234,179,8,0.18);  color: #FDE047; border: 1px solid rgba(234,179,8,0.3); }
+.phi-HOSPITAL { background: rgba(236,72,153,0.18); color: #F9A8D4; border: 1px solid rgba(236,72,153,0.3); }
+
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════
+     NAV
+══════════════════════════════════════════════════ -->
+<nav id="main-nav">
+  <div class="nav-logo">ClinicalNER</div>
+  <ul class="nav-links">
+    <li><a href="#demo">Live Demo</a></li>
+    <li><a href="#benchmark">Benchmark</a></li>
+    <li><a href="/benchmark-dashboard">Dashboard</a></li>
+    <li><a href="/api-explorer">API</a></li>
+    <li><a href="/system-status">Status</a></li>
+  </ul>
+</nav>
+
+<!-- ══════════════════════════════════════════════════
+     HERO
+══════════════════════════════════════════════════ -->
+<section id="hero">
+  <div class="hero-noise"></div>
+
+  <div class="hero-eyebrow" id="hero-eyebrow">
+    Clinical NLP Platform
+  </div>
+
+  <h1 class="hero-title" id="hero-title">
+    De-<em>identify</em><br>with surgical<br>precision.
+  </h1>
+
+  <p class="hero-sub" id="hero-sub">
+    A HIPAA-aware NLP pipeline that masks patient identifiers from
+    clinical notes in real time — powered by spaCy, regex, and
+    IsolationForest anomaly detection.
+  </p>
+
+  <div class="hero-scroll-hint">
+    <div class="scroll-line"></div>
+    Scroll to explore
+  </div>
+
+  <div class="hero-corner-tag">
+    Precision&nbsp;&gt;&nbsp;98%<br>
+    HIPAA-aware<br>
+    spaCy + Regex
+  </div>
+</section>
+
+<!-- divider -->
+<div class="ruled-divider"><div class="ruled-divider-fill" id="div1-fill"></div></div>
+
+<!-- ══════════════════════════════════════════════════
+     STATS STRIP
+══════════════════════════════════════════════════ -->
+<section id="stats-strip">
+  <div class="stat-cell">
+    <span class="stat-number" data-target="4999" id="stat-notes">0</span>
+    <div class="stat-label">Clinical Notes</div>
+    <div class="stat-desc">Corpus processed and indexed in SQLite</div>
+  </div>
+  <div class="stat-cell">
+    <span class="stat-number" data-target="6" id="stat-phi">0</span>
+    <div class="stat-label">PHI Entity Types</div>
+    <div class="stat-desc">NAME · DOB · MRN · PHONE · DATE · AGE</div>
+  </div>
+  <div class="stat-cell">
+    <span class="stat-number" data-target="40" id="stat-spec">0</span>
+    <div class="stat-label">Specialties</div>
+    <div class="stat-desc">Anatomic / surgical / medical covered</div>
+  </div>
+</section>
+
+<!-- divider -->
+<div class="ruled-divider"><div class="ruled-divider-fill" id="div2-fill"></div></div>
+
+<!-- ══════════════════════════════════════════════════
+     SCROLLYTELLING — PINNED SECTION
+══════════════════════════════════════════════════ -->
+<section id="scroll-story">
+  <!-- Sticky left visual -->
+  <div class="story-sticky">
+    <div class="story-visual">
+      <div class="vis-circle">
+        <div class="vis-orbit">
+          <div class="vis-orbit-dot"></div>
+        </div>
+        <div class="vis-circle-inner">
+          <div class="vis-step-number" id="vis-step-num">01</div>
+        </div>
+      </div>
+      <div class="vis-step-tag" id="vis-step-tag">Data Ingestion</div>
+    </div>
+  </div>
+
+  <!-- Scrollable right steps -->
+  <div class="story-steps">
+    <div class="step-block" data-step="1" data-step-tag="Data Ingestion">
+      <div class="step-index">Step 01</div>
+      <h3 class="step-title">Raw data<br>ingestion &amp;<br>validation.</h3>
+      <p class="step-body">
+        Clinical transcriptions are loaded from the MTSamples corpus —
+        4,999 real-world medical notes spanning 40 specialties.
+        The <code>DataLoader</code> validates schema, normalises encodings,
+        and streams records into the SQLite store with zero data loss.
+      </p>
+      <span class="step-tag">DataLoader · SQLite · Pandas</span>
+    </div>
+
+    <div class="step-block" data-step="2" data-step-tag="Pre-NER Cleaning">
+      <div class="step-index">Step 02</div>
+      <h3 class="step-title">Pre-NER<br>cleaning &amp;<br>normalisation.</h3>
+      <p class="step-body">
+        Before any entity detection, the <code>DataCleaner</code> strips
+        boilerplate artifacts, normalises whitespace, corrects common OCR
+        errors, and prepares the text surface for maximum NER recall.
+        All transformations are logged for audit traceability.
+      </p>
+      <span class="step-tag">DataCleaner · Regex · Unicode Norm</span>
+    </div>
+
+    <div class="step-block" data-step="3" data-step-tag="ML Modeling">
+      <div class="step-index">Step 03</div>
+      <h3 class="step-title">Hybrid NER<br>pipeline &amp;<br>ML modeling.</h3>
+      <p class="step-body">
+        The <code>NERPipeline</code> fuses spaCy's statistical model with
+        a hand-crafted regex layer — the hybrid approach outperforms either
+        in isolation by +11 F1 points. Spans are extracted, confidence-scored,
+        and returned with precise character offsets.
+      </p>
+      <span class="step-tag">spaCy · IsolationForest · HybridNER</span>
+    </div>
+
+    <div class="step-block" data-step="4" data-step-tag="Redaction & Audit">
+      <div class="step-index">Step 04</div>
+      <h3 class="step-title">PHI redaction<br>&amp; audit<br>logging.</h3>
+      <p class="step-body">
+        Every detected PHI span is replaced with its canonical label token
+        (e.g. <code>[NAME]</code>, <code>[MRN]</code>). Every API call,
+        prediction, and cleaning event is written to an immutable audit log —
+        full ICH E6 (R2) GCP traceability chain.
+      </p>
+      <span class="step-tag">AuditLogger · HIPAA · EventSourcing</span>
+    </div>
+  </div>
+</section>
+
+<!-- divider -->
+<div class="ruled-divider"><div class="ruled-divider-fill" id="div3-fill"></div></div>
+
+<!-- ══════════════════════════════════════════════════
+     LIVE DEMO
+══════════════════════════════════════════════════ -->
+<section id="demo">
+  <div class="section-eyebrow" id="demo-eyebrow">Live Demo</div>
+  <h2 class="section-title" id="demo-title">
+    See the pipeline<br>in motion.
+  </h2>
+
+  <div class="demo-grid" id="demo-grid">
+    <div class="demo-panel">
+      <div class="demo-panel-head">
+        <div class="demo-dot amber"></div>
+        Input — Clinical Note
+      </div>
+      <textarea class="demo-input" id="demo-text"
+        placeholder="Paste a clinical note here…">Patient James Smith, DOB: 04/12/1985. Phone: (415) 555-9876. MRN302145. Admitted to St. Mary's Hospital on 01/15/2024. Age: 38 years old.</textarea>
+      <button class="demo-btn" id="demo-btn">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M2.5 7h9M7.5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        De-identify
+      </button>
+    </div>
+    <div class="demo-panel">
+      <div class="demo-panel-head">
+        <div class="demo-dot lime"></div>
+        Output — De-identified
+      </div>
+      <div class="demo-output" id="demo-output">Output will appear here after de-identification…</div>
+      <div class="demo-chips" id="demo-chips"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     BENCHMARK
+══════════════════════════════════════════════════ -->
+<section id="benchmark">
+  <div class="bench-layout">
+    <div class="bench-intro">
+      <div class="section-eyebrow" id="bench-eyebrow">Model Benchmark</div>
+      <h2 class="section-title" id="bench-title">
+        Numbers that<br>speak loud.
+      </h2>
+      <p>
+        Two configurations benchmarked on a 30-example annotated test set
+        covering all six PHI entity types. Span-level exact-match scoring —
+        stricter than token overlap.
+      </p>
+      <button class="bench-run-btn" id="bench-fetch-btn">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        Run Live Benchmark
+      </button>
+      <div id="bench-status" style="margin-top:14px;font-family:var(--mono);font-size:11px;color:rgba(240,237,230,0.3);min-height:20px;"></div>
+    </div>
+
+    <div class="bench-chart" id="bench-chart">
+      <!-- regex-only -->
+      <div class="bar-group" id="bar-regex">
+        <div class="bar-meta">
+          <span class="bar-name">Regex-Only Baseline</span>
+          <span class="bar-metrics">
+            <span id="regex-f1">F1 —</span>
+            <span id="regex-lat">— ms</span>
+          </span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill dim" id="bar-regex-fill" style="width:0%"></div>
+        </div>
+      </div>
+      <!-- spacy-hybrid -->
+      <div class="bar-group" id="bar-spacy">
+        <div class="bar-meta">
+          <span class="bar-name">spaCy Hybrid</span>
+          <span class="bar-metrics">
+            <span id="spacy-f1">F1 —</span>
+            <span id="spacy-lat">— ms</span>
+          </span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill lime" id="bar-spacy-fill" style="width:0%"></div>
+        </div>
+      </div>
+      <!-- precision -->
+      <div class="bar-group" id="bar-prec">
+        <div class="bar-meta">
+          <span class="bar-name">Precision  ·  spaCy Hybrid</span>
+          <span class="bar-metrics"><span id="spacy-prec">—</span></span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill lime" id="bar-prec-fill" style="width:0%;opacity:0.65"></div>
+        </div>
+      </div>
+      <!-- recall -->
+      <div class="bar-group" id="bar-rec">
+        <div class="bar-meta">
+          <span class="bar-name">Recall  ·  spaCy Hybrid</span>
+          <span class="bar-metrics"><span id="spacy-rec">—</span></span>
+        </div>
+        <div class="bar-track">
+          <div class="bar-fill lime" id="bar-rec-fill" style="width:0%;opacity:0.45"></div>
+        </div>
+      </div>
+      <div class="bench-legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--lime)"></div>spaCy Hybrid</div>
+        <div class="legend-item"><div class="legend-dot" style="background:rgba(200,242,60,0.35)"></div>Regex Baseline</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     FOOTER
+══════════════════════════════════════════════════ -->
+<footer>
+  <div class="footer-mark">ClinicalNER</div>
+  <div>
+    <div class="footer-nav">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/api-explorer">API Explorer</a>
+      <a href="/system-status">System Status</a>
+      <a href="/api/benchmark">Benchmark JSON</a>
+    </div>
+    <div class="footer-copy">NLP De-identification Pipeline · HIPAA-aware · spaCy + Regex</div>
+  </div>
+</footer>
+
+
+<!-- ══════════════════════════════════════════════════
+     JAVASCRIPT — GSAP + APP LOGIC
+══════════════════════════════════════════════════ -->
+<script>
+/* ── Register ScrollTrigger ──────────────────────── */
+gsap.registerPlugin(ScrollTrigger);
+
+/* ── Nav fade-in on load ─────────────────────────── */
+gsap.from('#main-nav', {
+  y: -20,
+  opacity: 0,
+  duration: 1,
+  ease: 'expo.out',
+  delay: 0.2
+});
+
+/* ═══════════════════════════════════════════════════
+   HERO ENTRANCE — content visible immediately.
+   Elements drift up from a slight offset only (no
+   opacity:0 start → no black screen on load).
+═══════════════════════════════════════════════════ */
+gsap.from('.hero-eyebrow',    { y: 18,  duration: 1.2, ease: 'expo.out', delay: 0.05 });
+gsap.from('.hero-title',      { y: 48,  duration: 1.4, ease: 'expo.out', delay: 0.0  });
+gsap.from('.hero-sub',        { y: 28,  duration: 1.1, ease: 'expo.out', delay: 0.15 });
+gsap.from('.hero-scroll-hint',{ y: 10, opacity: 0, duration: 1.0, ease: 'expo.out', delay: 0.5 });
+gsap.from('.hero-corner-tag', {         opacity: 0, duration: 1.2, delay: 0.3 });
+
+/* ── Hero scroll-out: title shrinks + fades ──────── */
+gsap.to('#hero-title', {
+  scale: 0.82,
+  opacity: 0,
+  y: -60,
+  ease: 'none',
+  scrollTrigger: {
+    trigger: '#hero',
+    start: 'top top',
+    end: 'bottom top',
+    scrub: 1.5,
+  }
+});
+gsap.to('#hero-sub, #hero-eyebrow', {
+  opacity: 0,
+  y: -40,
+  ease: 'none',
+  scrollTrigger: {
+    trigger: '#hero',
+    start: 'top top',
+    end: '60% top',
+    scrub: 1,
+  }
+});
+
+/* ══════════════════════════════════════════════════
+   DIVIDER LINES — sweep on scroll
+═══════════════════════════════════════════════════ */
+['#div1-fill','#div2-fill','#div3-fill'].forEach(id => {
+  gsap.to(id, {
+    scaleX: 1,
+    duration: 1,
+    ease: 'expo.out',
+    scrollTrigger: {
+      trigger: id.replace('-fill',''),
+      start: 'top 90%',
+      toggleActions: 'play none none none'
+    }
+  });
+});
+
+/* ═══════════════════════════════════════════════════
+   STATS COUNTER STRIP
+═══════════════════════════════════════════════════ */
+/* Slide-in the cells */
+gsap.from('.stat-cell', {
+  y: 60,
+  opacity: 0,
+  duration: 1.2,
+  stagger: 0.15,
+  ease: 'expo.out',
+  scrollTrigger: {
+    trigger: '#stats-strip',
+    start: 'top 80%',
+    toggleActions: 'play none none none'
+  }
+});
+
+/* Number count-up */
+document.querySelectorAll('.stat-number').forEach(el => {
+  const target = parseInt(el.dataset.target, 10);
+  const obj = { val: 0 };
+  ScrollTrigger.create({
+    trigger: el,
+    start: 'top 85%',
+    onEnter: () => {
+      gsap.to(obj, {
+        val: target,
+        duration: 2.2,
+        ease: 'expo.out',
+        onUpdate: () => {
+          el.textContent = Math.round(obj.val).toLocaleString();
+        }
+      });
+    }
+  });
+});
+
+/* ═══════════════════════════════════════════════════
+   SCROLLYTELLING — STEP BLOCKS
+═══════════════════════════════════════════════════ */
+const stepLabels = {
+  1: { num: '01', tag: 'Data Ingestion' },
+  2: { num: '02', tag: 'Pre-NER Cleaning' },
+  3: { num: '03', tag: 'ML Modeling' },
+  4: { num: '04', tag: 'Redaction & Audit' },
+};
+const visNum = document.getElementById('vis-step-num');
+const visTag = document.getElementById('vis-step-tag');
+
+document.querySelectorAll('.step-block').forEach(block => {
+  const step = parseInt(block.dataset.step, 10);
+
+  /* Fade in when entering */
+  ScrollTrigger.create({
+    trigger: block,
+    start: 'top 65%',
+    end: 'bottom 35%',
+    onEnter: () => {
+      gsap.to(block, { opacity: 1, y: 0, duration: 0.9, ease: 'expo.out' });
+      /* Update the pinned visual */
+      gsap.to(visNum, { opacity: 0, y: -10, duration: 0.2, onComplete: () => {
+        visNum.textContent = stepLabels[step].num;
+        gsap.to(visNum, { opacity: 1, y: 0, duration: 0.4, ease: 'expo.out' });
+      }});
+      gsap.to(visTag, { opacity: 0, duration: 0.2, onComplete: () => {
+        visTag.textContent = stepLabels[step].tag;
+        gsap.to(visTag, { opacity: 1, duration: 0.4 });
+      }});
+    },
+    onLeaveBack: () => {
+      gsap.to(block, { opacity: 0, y: 40, duration: 0.5, ease: 'power2.in' });
+    }
+  });
+});
+
+/* ═══════════════════════════════════════════════════
+   DEMO SECTION — slide-up reveal
+═══════════════════════════════════════════════════ */
+gsap.from('#demo-eyebrow, #demo-title', {
+  y: 40,
+  opacity: 0,
+  duration: 1.1,
+  stagger: 0.12,
+  ease: 'expo.out',
+  scrollTrigger: {
+    trigger: '#demo',
+    start: 'top 80%',
+    toggleActions: 'play none none none'
+  }
+});
+gsap.from('#demo-grid .demo-panel', {
+  y: 60,
+  opacity: 0,
+  duration: 1.3,
+  stagger: 0.18,
+  ease: 'expo.out',
+  scrollTrigger: {
+    trigger: '#demo-grid',
+    start: 'top 85%',
+    toggleActions: 'play none none none'
+  }
+});
+
+/* ═══════════════════════════════════════════════════
+   BENCHMARK — bar reveal
+═══════════════════════════════════════════════════ */
+gsap.from('#bench-eyebrow, #bench-title', {
+  y: 40,
+  opacity: 0,
+  duration: 1.1,
+  stagger: 0.12,
+  ease: 'expo.out',
+  scrollTrigger: {
+    trigger: '#benchmark',
+    start: 'top 80%',
+    toggleActions: 'play none none none'
+  }
+});
+gsap.from('.bench-intro p, .bench-run-btn', {
+  y: 20, opacity: 0, duration: 0.9, stagger: 0.1, ease: 'expo.out',
+  scrollTrigger: { trigger: '#benchmark', start: 'top 75%', toggleActions: 'play none none none' }
+});
+['bar-regex','bar-spacy','bar-prec','bar-rec'].forEach((id, i) => {
+  gsap.to(`#${id}`, {
+    opacity: 1,
+    x: 0,
+    duration: 0.9,
+    delay: i * 0.12,
+    ease: 'expo.out',
+    scrollTrigger: {
+      trigger: `#${id}`,
+      start: 'top 88%',
+      toggleActions: 'play none none none'
+    }
+  });
+});
+
+/* ════════════════════════════════════════════════════
+   DEMO API CALL
+════════════════════════════════════════════════════ */
+const PHI_COLORS = {
+  NAME:     'phi-NAME',
+  DOB:      'phi-DOB',
+  MRN:      'phi-MRN',
+  PHONE:    'phi-PHONE',
+  DATE:     'phi-DATE',
+  AGE:      'phi-AGE',
+  HOSPITAL: 'phi-HOSPITAL',
+};
+
+document.getElementById('demo-btn').addEventListener('click', async () => {
+  const text = document.getElementById('demo-text').value.trim();
+  if (!text) return;
+
+  const btn = document.getElementById('demo-btn');
+  const out = document.getElementById('demo-output');
+  const chips = document.getElementById('demo-chips');
+
+  btn.textContent = 'Processing…';
+  btn.disabled = true;
+  out.innerHTML = '<span style="color:rgba(240,237,230,0.25);font-style:italic;">Running NER pipeline…</span>';
+  chips.innerHTML = '';
+
+  try {
+    const res = await fetch('/api/deidentify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, save: false })
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'API error');
+
+    /* Highlight the entity tokens in the masked text */
+    let html = d.masked_text
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/\[([A-Z]+)\]/g, (m, label) => {
+        const cls = PHI_COLORS[label] || '';
+        return `<span class="phi-token ${cls}">${m}</span>`;
+      });
+    out.style.fontStyle = 'normal';
+    out.style.color = 'rgba(240,237,230,0.85)';
+    out.innerHTML = html;
+    gsap.from(out, { opacity: 0, y: 12, duration: 0.6, ease: 'expo.out' });
+
+    /* Entity chips */
+    const counts = d.entity_types || {};
+    Object.entries(counts).forEach(([label, n]) => {
+      const cls = PHI_COLORS[label] || '';
+      const chip = document.createElement('span');
+      chip.className = `phi-chip ${cls}`;
+      chip.textContent = `${label} ×${n}`;
+      chips.appendChild(chip);
+    });
+    gsap.from(chips.children, { opacity: 0, scale: 0.8, duration: 0.5, stagger: 0.06, ease: 'back.out(1.7)' });
+
+  } catch (e) {
+    out.innerHTML = `<span style="color:#FCA5A5;">Error: ${e.message}</span>`;
+  } finally {
+    btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M2.5 7h9M7.5 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> De-identify`;
+    btn.disabled = false;
+  }
+});
+
+/* ════════════════════════════════════════════════════
+   BENCHMARK — fetch & animate bars
+════════════════════════════════════════════════════ */
+let benchLoaded = false;
+
+async function loadBenchmark(manual = false) {
+  if (benchLoaded && !manual) return;
+  const statusEl = document.getElementById('bench-status');
+  const fetchBtn = document.getElementById('bench-fetch-btn');
+
+  fetchBtn.textContent = 'Running…';
+  fetchBtn.disabled = true;
+  statusEl.textContent = 'Fetching benchmark results…';
+
+  try {
+    const res = await fetch('/api/benchmark');
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'API error');
+
+    benchLoaded = true;
+    statusEl.textContent = `✓ ${d.notes_tested} annotated examples · span-level exact match`;
+
+    const [regex, spacy] = d.results;
+
+    /* Update labels */
+    if (regex) {
+      document.getElementById('regex-f1').textContent  = `F1 ${(regex.f1 * 100).toFixed(1)}%`;
+      document.getElementById('regex-lat').textContent = `${regex.latency_ms}ms`;
+    }
+    if (spacy) {
+      document.getElementById('spacy-f1').textContent  = `F1 ${(spacy.f1 * 100).toFixed(1)}%`;
+      document.getElementById('spacy-lat').textContent = `${spacy.latency_ms}ms`;
+      document.getElementById('spacy-prec').textContent = `${(spacy.precision * 100).toFixed(1)}%`;
+      document.getElementById('spacy-rec').textContent  = `${(spacy.recall * 100).toFixed(1)}%`;
+    }
+
+    /* Animate bars */
+    const targets = {
+      'bar-regex-fill': regex ? regex.f1 * 100 : 0,
+      'bar-spacy-fill': spacy ? spacy.f1 * 100 : 0,
+      'bar-prec-fill':  spacy ? spacy.precision * 100 : 0,
+      'bar-rec-fill':   spacy ? spacy.recall * 100 : 0,
+    };
+    Object.entries(targets).forEach(([id, pct]) => {
+      gsap.to(`#${id}`, { width: `${pct}%`, duration: 1.8, ease: 'expo.out', delay: 0.1 });
+    });
+
+  } catch (e) {
+    statusEl.textContent = `Error: ${e.message}`;
+  } finally {
+    fetchBtn.textContent = 'Run Live Benchmark';
+    fetchBtn.disabled = false;
+  }
+}
+
+document.getElementById('bench-fetch-btn').addEventListener('click', () => loadBenchmark(true));
+
+/* Auto-load when section enters viewport (once) */
+ScrollTrigger.create({
+  trigger: '#benchmark',
+  start: 'top 70%',
+  onEnter: () => loadBenchmark(false)
+});
+
+/* ════════════════════════════════════════════════════
+   SMOOTH NAV BACKGROUND on scroll
+════════════════════════════════════════════════════ */
+ScrollTrigger.create({
+  trigger: '#stats-strip',
+  start: 'top 10%',
+  onEnter: () => {
+    gsap.to('#main-nav', { background: 'rgba(8,8,8,0.85)', backdropFilter: 'blur(16px)', duration: 0.5 });
+  },
+  onLeaveBack: () => {
+    gsap.to('#main-nav', { background: 'transparent', backdropFilter: 'blur(0px)', duration: 0.5 });
+  }
+});
+
+/* ════════════════════════════════════════════════════
+   Live stats for the dynamic values (note count etc)
+════════════════════════════════════════════════════ */
+(async () => {
+  try {
+    const res = await fetch('/api/stats');
+    if (!res.ok) return;
+    const d = await res.json();
+    if (d.note_count)      document.querySelector('#stat-notes').dataset.target = d.note_count;
+    if (d.processed_count) document.querySelector('#stat-spec').dataset.target  = d.processed_count;
+  } catch (_) {}
+})();
+
+</script>
+</body>
+</html>

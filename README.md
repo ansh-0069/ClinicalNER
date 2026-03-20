@@ -1,8 +1,8 @@
 # ClinicalNER — NLP De-identification Pipeline
 
 ![CI](https://github.com/ansh-0069/ClinicalNER/actions/workflows/tests.yml/badge.svg)
-![Tests](https://img.shields.io/badge/tests-110%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-81%25-brightgreen)
+![Tests](https://img.shields.io/badge/tests-192%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 ![spaCy](https://img.shields.io/badge/spaCy-3.x-09a3d5)
 ![Docker](https://img.shields.io/badge/docker-ready-blue)
@@ -12,6 +12,24 @@
 > **Portfolio Project** — Built for the Associate Clinical Programmer JD (0–2 yrs exp)
 
 An end-to-end NLP pipeline that ingests unstructured clinical notes, extracts PHI entities (names, dates, hospitals, phone numbers, MRNs), de-identifies the text, and serves results via a Flask REST API — all containerized with Docker.
+
+---
+
+## Clinical Domain Context
+
+This pipeline addresses PHI de-identification requirements under:
+- **HIPAA Safe Harbor** (45 CFR §164.514) — 18 PHI identifier categories
+- **ICH E6 (R2) GCP** — audit trail requirements for clinical trial data
+- **21 CFR Part 11** — electronic records in regulated environments
+
+Entity types mapped to CDISC CDASH domains:
+
+| Entity | CDASH Domain | Field |
+| --- | --- | --- |
+| DATE | DM / DS | DMDTC / DSSTDTC |
+| MRN | DM | USUBJID |
+| HOSPITAL | DM | SITEID |
+| AGE | DM | AGE |
 
 ---
 
@@ -145,6 +163,31 @@ Python 3.11 · spaCy · pandas · SQLAlchemy · Flask · gunicorn · Docker · d
 
 ---
 
+## ML Models
+
+### Clinical risk prediction (XGBoost)
+Trained on Diabetes-130 dataset (101,766 records, 50 features) to predict
+30-day hospital readmission — a standard CMS quality metric.
+
+| Metric | Score |
+|---|---|
+| ROC-AUC | 0.675 |
+| F1 (macro) | 0.532 |
+| Training set | 81,416 records |
+| Test set | 20,354 records |
+| Features engineered | 42 |
+
+Top predictors: `number_inpatient`, `discharge_disposition_id`,
+`diabetesMed`, `total_prior_visits`, `number_diagnoses`
+
+### NER benchmark (spaCy vs regex)
+| Model | Precision | Recall | F1 | Latency |
+|---|---|---|---|---|
+| regex-only | 0.807 | 0.868 | 0.836 | 0.1ms |
+| spacy-hybrid | 0.804 | 0.849 | 0.826 | 6.9ms |
+
+---
+
 ## JD Requirements Covered
 
 | Requirement                | Implementation                                               |
@@ -153,9 +196,9 @@ Python 3.11 · spaCy · pandas · SQLAlchemy · Flask · gunicorn · Docker · d
 | SQL                        | SQLite + SQLAlchemy ORM, analytical cross-table queries      |
 | Unstructured clinical data | Free-text NER and masking on MTSamples                       |
 | EDA                        | 5 chart types via ClinicalEDA                                |
-| ML models                  | Hybrid regex + spaCy NER pipeline                            |
+| ML models                  | XGBoost readmission risk model (AUC=0.675) + hybrid NER pipeline |
 | Anomaly detection          | Residual PHI scanning in DataCleaner                         |
 | Flask / Django             | 5 REST routes, consistent HTTP status codes                  |
 | Docker                     | Production Dockerfile, HEALTHCHECK, gunicorn                 |
 | Cloud deployment           | Docker-ready, gunicorn WSGI server                           |
-| Test coverage              | 110 tests, 81% coverage                                      |
+| Test coverage              | 192 tests, 90% coverage                                      |

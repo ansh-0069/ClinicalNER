@@ -152,7 +152,7 @@ class AnomalyDetector:
 
         results = []
         for i, note in enumerate(notes):
-            anomaly_score = round(float(-scores[i]), 4)     # flip: higher = worse
+            anomaly_score = round(max(0.0, float(-scores[i])), 4)  # flip: higher = worse, clamp to 0
             is_anomaly    = bool(labels[i] == -1)
             flags         = self._generate_flags(note, X[i])
 
