@@ -30,7 +30,6 @@ COPY --from=builder /install /usr/local
 
 # Copy application source
 COPY src/       ./src/
-COPY data/raw/  ./data/raw/
 COPY run_phase1.py run_phase2.py run_phase3.py run_phase4.py ./
 
 # Create data directory for the SQLite database
