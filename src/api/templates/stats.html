@@ -3,344 +3,263 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Stats · ClinicalNER</title>
+<title>ClinicalNER · Stats</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..900&family=IBM+Plex+Mono:wght@300;400;500;600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
 <style>
 :root {
-  --bg:        #FAFAF8;
-  --surface:   #FFFFFF;
-  --text:      #0A0A0A;
-  --text-mid:  #525252;
-  --text-dim:  #A3A3A3;
-  --border:    #E5E5E5;
-  --accent:    #FF3B30;
-  --accent-dim: rgba(255,59,48,0.08);
-  --shadow:    0 1px 3px rgba(0,0,0,0.04);
-  --shadow-lg: 0 8px 24px rgba(0,0,0,0.06);
+  --ink: #060708;
+  --paper: #f2f4ef;
+  --line: rgba(242, 244, 239, 0.14);
+  --muted: rgba(242, 244, 239, 0.64);
+  --signal: #c8ff45;
+  --signal-soft: rgba(200, 255, 69, 0.16);
+  --mono: "IBM Plex Mono", monospace;
+  --display: "Fraunces", Georgia, serif;
+  --sans: "Instrument Sans", "Segoe UI", sans-serif;
 }
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
+* { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  min-height: 100vh;
-  overflow-x: hidden;
-  font-size: 15px;
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  padding-bottom: 120px;
+  font-family: var(--sans);
+  background:
+    radial-gradient(1200px 700px at 85% -10%, rgba(200,255,69,0.14), transparent 62%),
+    radial-gradient(1000px 500px at -12% 30%, rgba(82,114,255,0.14), transparent 58%),
+    var(--ink);
+  color: var(--paper);
+  padding: 5rem 5vw 110px;
 }
-
-h1, h2 {
-  font-family: 'Playfair Display', Georgia, serif;
-  font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
+.hero .eyebrow {
+  color: var(--signal);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
 }
-
-.page {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 80px 60px 40px;
-}
-
-.hero {
-  margin-bottom: 64px;
-  padding-bottom: 32px;
-  border-bottom: 1px solid var(--border);
-}
-
-.hero-title {
-  font-size: 56px;
-  font-weight: 900;
-  margin-bottom: 12px;
+.hero h1 {
+  margin-top: 12px;
+  font-family: var(--display);
+  font-size: clamp(46px, 9vw, 120px);
+  line-height: 0.9;
   letter-spacing: -0.03em;
 }
-
-.hero-subtitle {
-  font-size: 18px;
-  color: var(--text-mid);
-  font-weight: 400;
-  max-width: 600px;
+.hero p {
+  margin-top: 16px;
+  max-width: 54ch;
+  color: var(--muted);
+  line-height: 1.7;
 }
-
-.hero-actions {
-  display: flex;
-  gap: 16px;
-  margin-top: 24px;
-}
-
-.btn {
-  font-size: 12px;
+.actions { margin-top: 24px; display: flex; gap: 10px; flex-wrap: wrap; }
+button {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 600;
-  padding: 12px 24px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
+  padding: 10px 14px;
   cursor: pointer;
-  transition: all 0.2s;
-  text-decoration: none;
-  display: inline-block;
+}
+button:hover { background: var(--signal-soft); border-color: rgba(200,255,69,0.45); }
+button.primary { background: var(--signal); color: #101410; border-color: transparent; font-weight: 700; }
+
+.band {
+  margin-top: 34px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+}
+.metric {
+  background: rgba(10, 12, 13, 0.95);
+  padding: 22px 18px;
+}
+.metric-key {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: rgba(242, 244, 239, 0.46);
+}
+.metric-value {
+  margin-top: 8px;
+  font-family: var(--display);
+  font-size: clamp(30px, 4vw, 62px);
+  color: var(--signal);
+  line-height: 0.95;
 }
 
-.btn:hover {
-  background: var(--text);
-  color: var(--surface);
-  border-color: var(--text);
+.surface {
+  margin-top: 36px;
+  border: 1px solid var(--line);
+  background: rgba(10, 12, 13, 0.95);
+  padding: 20px;
 }
-
-.btn-accent {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--surface);
-}
-
-.btn-accent:hover {
-  background: var(--text);
-  border-color: var(--text);
-}
-
-.section {
-  margin-bottom: 48px;
-}
-
-.section-title {
-  font-size: 24px;
-  margin-bottom: 20px;
-  font-family: 'Playfair Display', serif;
-}
-
-.json-container {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 32px;
-  overflow-x: auto;
-}
-
 pre {
-  font-family: 'IBM Plex Mono', monospace;
-  font-size: 13px;
-  line-height: 1.8;
-  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  color: rgba(242,244,239,0.9);
+  line-height: 1.75;
   white-space: pre-wrap;
   word-break: break-word;
 }
-
-.key {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.string {
-  color: var(--text-mid);
-}
-
-.number {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.loading {
-  text-align: center;
-  padding: 64px;
-  color: var(--text-dim);
-  font-size: 14px;
-}
-
 .error {
-  background: var(--accent-dim);
-  border: 1px solid var(--accent);
-  padding: 20px 24px;
-  color: var(--accent);
-  font-weight: 500;
-  margin-bottom: 32px;
+  margin-top: 20px;
+  border: 1px solid rgba(255, 107, 107, 0.42);
+  color: #ff9a9a;
+  background: rgba(255, 107, 107, 0.12);
+  padding: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
 }
-
-/* Bottom Dock */
 .dock {
   position: fixed;
-  bottom: 32px;
   left: 50%;
+  bottom: 18px;
   transform: translateX(-50%);
   display: flex;
   gap: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 12px 16px;
-  box-shadow: var(--shadow-lg);
-  z-index: 1000;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: rgba(8, 10, 11, 0.84);
+  backdrop-filter: blur(14px);
 }
-
-.dock-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 12px 20px;
+.dock a {
+  color: rgba(242,244,239,0.64);
   text-decoration: none;
-  color: var(--text-mid);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   border: 1px solid transparent;
-  position: relative;
+  padding: 9px 12px;
 }
-
-.dock-item:hover {
-  transform: translateY(-4px);
-  color: var(--text);
-}
-
-.dock-item.active {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
-.dock-item.active::before {
-  content: '';
-  position: absolute;
-  top: -1px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--accent);
-}
-
-.dock-icon {
-  width: 20px;
-  height: 20px;
-  stroke: currentColor;
-  stroke-width: 1.5;
-  fill: none;
-}
-
-.dock-label {
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-}
-
-@media (max-width: 768px) {
-  .page { padding: 40px 24px; }
-  .hero-title { font-size: 40px; }
-  .dock { bottom: 16px; padding: 8px 12px; }
-  .dock-item { padding: 8px 12px; }
+.dock a.active, .dock a:hover { color: var(--paper); border-color: rgba(200,255,69,0.42); background: var(--signal-soft); }
+@media (max-width: 980px) { .band { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+@media (max-width: 760px) {
+  .band { grid-template-columns: 1fr; }
+  .dock { left: 10px; right: 10px; transform: none; width: calc(100vw - 20px); overflow-x: auto; }
+  .dock a { white-space: nowrap; }
 }
 </style>
 </head>
 <body>
-
-<div class="page">
-  <div class="hero">
-    <h1 class="hero-title">Pipeline Statistics</h1>
-    <p class="hero-subtitle">Real-time JSON data from the ClinicalNER processing pipeline.</p>
-    <div class="hero-actions">
-      <button class="btn btn-accent" onclick="copyToClipboard()">Copy JSON</button>
-      <button class="btn" onclick="downloadJSON()">Download JSON</button>
-      <button class="btn" onclick="location.reload()">Refresh</button>
-    </div>
+<section class="hero animate-up">
+  <div class="eyebrow">Stats Endpoint Observatory</div>
+  <h1>Raw payload,<br>premium surface.</h1>
+  <p>Live response from /api/stats rendered as a clean telemetry view, preserving full JSON for debugging and regulatory traceability.</p>
+  <div class="actions">
+    <button class="primary" id="copy-btn" type="button">Copy JSON</button>
+    <button id="download-btn" type="button">Download JSON</button>
+    <button id="refresh-btn" type="button">Refresh</button>
   </div>
+</section>
 
-  <div id="error-container"></div>
+<section class="band">
+  <article class="metric animate-up"><div class="metric-key">Clinical Notes</div><div class="metric-value" id="m-notes">0</div></article>
+  <article class="metric animate-up"><div class="metric-key">Processed Notes</div><div class="metric-value" id="m-processed">0</div></article>
+  <article class="metric animate-up"><div class="metric-key">Entity Volume</div><div class="metric-value" id="m-entities">0</div></article>
+  <article class="metric animate-up"><div class="metric-key">Audit Events</div><div class="metric-value" id="m-audit">0</div></article>
+</section>
 
-  <div class="section">
-    <h2 class="section-title">JSON Response</h2>
-    <div class="json-container">
-      <pre id="json-output" class="loading">Loading statistics...</pre>
-    </div>
-  </div>
-</div>
+<section class="surface animate-up">
+  <pre id="json-output">Loading statistics...</pre>
+</section>
+<div id="error-box"></div>
 
-<!-- Bottom Dock -->
 <nav class="dock">
-  <a href="/dashboard" class="dock-item">
-    <svg class="dock-icon" viewBox="0 0 24 24">
-      <rect x="3" y="3" width="7" height="7" rx="1"/>
-      <rect x="14" y="3" width="7" height="7" rx="1"/>
-      <rect x="3" y="14" width="7" height="7" rx="1"/>
-      <rect x="14" y="14" width="7" height="7" rx="1"/>
-    </svg>
-    <span class="dock-label">Dashboard</span>
-  </a>
-  <a href="/api-explorer" class="dock-item">
-    <svg class="dock-icon" viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="10"/>
-      <path d="M12 6v6l4 2"/>
-    </svg>
-    <span class="dock-label">API</span>
-  </a>
-  <a href="/stats" class="dock-item active">
-    <svg class="dock-icon" viewBox="0 0 24 24">
-      <path d="M3 3v18h18"/>
-      <path d="M18 17V9"/>
-      <path d="M13 17V5"/>
-      <path d="M8 17v-3"/>
-    </svg>
-    <span class="dock-label">Stats</span>
-  </a>
-  <a href="/report/summary" class="dock-item" target="_blank">
-    <svg class="dock-icon" viewBox="0 0 24 24">
-      <path d="M9 3h6"/>
-      <path d="M10 8h4"/>
-      <rect x="5" y="3" width="14" height="18" rx="2"/>
-      <path d="M9 12h6"/>
-      <path d="M9 16h6"/>
-    </svg>
-    <span class="dock-label">Report</span>
-  </a>
+  <a href="/dashboard">Dashboard</a>
+  <a href="/stats" class="active">Stats</a>
+  <a href="/api-explorer">API</a>
+  <a href="/report/summary" target="_blank" rel="noopener">Report</a>
+  <a href="/system-status">Status</a>
 </nav>
 
 <script>
+gsap.registerPlugin(ScrollTrigger);
+
+const MOTION = {
+  revealY: 30,
+  revealDuration: 0.78,
+  revealStart: 'top 90%',
+  ease: 'expo.out',
+  counterDuration: 1.2
+};
+
 let statsData = null;
 
-async function loadStats() {
-  try {
-    const res = await fetch('/api/stats');
-    const data = await res.json();
-    
-    if (data.error) {
-      throw new Error(data.error);
-    }
-    
-    statsData = data;
-    const formatted = JSON.stringify(data, null, 2);
-    document.getElementById('json-output').textContent = formatted;
-    
-  } catch(e) {
-    document.getElementById('error-container').innerHTML = 
-      `<div class="error">⚠ Failed to load statistics: ${e.message}</div>`;
-    document.getElementById('json-output').textContent = 'Error loading data';
-  }
-}
-
-function copyToClipboard() {
-  const text = document.getElementById('json-output').textContent;
-  navigator.clipboard.writeText(text).then(() => {
-    const btn = event.target;
-    const original = btn.textContent;
-    btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = original, 2000);
+function animateCount(id, target) {
+  const node = document.getElementById(id);
+  const val = { n: 0 };
+  gsap.to(val, {
+    n: Number(target) || 0,
+    duration: MOTION.counterDuration,
+    ease: MOTION.ease,
+    onUpdate: () => { node.textContent = Math.round(val.n).toLocaleString(); }
   });
 }
 
-function downloadJSON() {
+function reveal() {
+  gsap.utils.toArray('.animate-up').forEach((el) => {
+    gsap.fromTo(el, { opacity: 0, y: MOTION.revealY }, {
+      opacity: 1,
+      y: 0,
+      duration: MOTION.revealDuration,
+      ease: MOTION.ease,
+      scrollTrigger: { trigger: el, start: MOTION.revealStart, once: true }
+    });
+  });
+}
+
+async function loadStats() {
+  document.getElementById('error-box').innerHTML = '';
+  try {
+    const res = await fetch('/api/stats');
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || 'Failed to load stats');
+
+    statsData = data;
+    document.getElementById('json-output').textContent = JSON.stringify(data, null, 2);
+
+    const totalEntities = Object.values(data.entity_totals || {}).reduce((a, b) => a + b, 0);
+    animateCount('m-notes', data.note_count || 0);
+    animateCount('m-processed', data.processed_count || 0);
+    animateCount('m-entities', totalEntities);
+    animateCount('m-audit', data.total_audit_events || 0);
+  } catch (e) {
+    document.getElementById('json-output').textContent = 'Error loading data';
+    document.getElementById('error-box').innerHTML = `<div class="error">Failed to load statistics: ${e.message}</div>`;
+  }
+}
+
+document.getElementById('copy-btn').addEventListener('click', async (event) => {
+  const text = document.getElementById('json-output').textContent;
+  await navigator.clipboard.writeText(text);
+  const btn = event.currentTarget;
+  const old = btn.textContent;
+  btn.textContent = 'Copied';
+  setTimeout(() => { btn.textContent = old; }, 1200);
+});
+
+document.getElementById('download-btn').addEventListener('click', () => {
   if (!statsData) return;
-  
   const blob = new Blob([JSON.stringify(statsData, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `clinicalner-stats-${new Date().toISOString().slice(0,10)}.json`;
+  a.download = `clinicalner-stats-${new Date().toISOString().slice(0, 10)}.json`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
+});
 
+document.getElementById('refresh-btn').addEventListener('click', loadStats);
+
+reveal();
 loadStats();
 </script>
 </body>

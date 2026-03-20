@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClinicalNER · API Explorer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..900&family=IBM+Plex+Mono:wght@300;400;500;600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<style>
+:root { --ink:#060708; --paper:#f2f4ef; --line:rgba(242,244,239,.14); --muted:rgba(242,244,239,.62); --signal:#c8ff45; --soft:rgba(200,255,69,.15); --mono:"IBM Plex Mono",monospace; --display:"Fraunces",serif; --sans:"Instrument Sans",sans-serif; }
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:radial-gradient(1200px 700px at 85% -10%,rgba(200,255,69,.12),transparent 62%),radial-gradient(1000px 500px at -12% 30%,rgba(82,114,255,.14),transparent 58%),var(--ink);color:var(--paper);padding:5rem 5vw 110px}
+.hero .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--signal)}
+.hero h1{margin-top:12px;font-family:var(--display);font-size:clamp(44px,8vw,104px);line-height:.9;letter-spacing:-.03em}
+.hero p{margin-top:14px;color:var(--muted);max-width:58ch;line-height:1.7}
+.grid{margin-top:30px;display:grid;grid-template-columns:1.2fr 1fr;gap:1px;background:var(--line)}
+.panel{background:rgba(10,12,13,.96);padding:18px}
+.label{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(242,244,239,.46);margin-bottom:12px}
+textarea,input,select{width:100%;background:rgba(15,18,19,.92);border:1px solid var(--line);color:var(--paper);font-family:var(--mono);font-size:12px;padding:10px;outline:none}
+textarea{min-height:180px;resize:vertical;line-height:1.7}
+.row{display:grid;grid-template-columns:140px 1fr;gap:8px;margin-bottom:8px;align-items:center}
+button{border:1px solid var(--line);background:transparent;color:var(--paper);font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;padding:10px 14px;cursor:pointer}
+button:hover{border-color:rgba(200,255,69,.5);background:var(--soft)}
+button.primary{background:var(--signal);color:#101410;border-color:transparent;font-weight:700}
+.actions{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+pre{font-family:var(--mono);font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-word;color:rgba(242,244,239,.92)}
+.routes{margin-top:24px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line)}
+.route{background:rgba(10,12,13,.95);padding:14px}
+.route small{display:block;color:var(--muted);margin-top:6px;font-size:13px}
+.method{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--signal)}
+.dock{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:8px;padding:10px;border:1px solid var(--line);background:rgba(8,10,11,.84);backdrop-filter:blur(14px)}
+.dock a{color:rgba(242,244,239,.64);text-decoration:none;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;border:1px solid transparent;padding:9px 12px}
+.dock a.active,.dock a:hover{color:var(--paper);border-color:rgba(200,255,69,.42);background:var(--soft)}
+@media(max-width:980px){.grid{grid-template-columns:1fr}.routes{grid-template-columns:1fr}}
+@media(max-width:760px){.row{grid-template-columns:1fr}.dock{left:10px;right:10px;transform:none;width:calc(100vw - 20px);overflow-x:auto}.dock a{white-space:nowrap}}
+</style>
+</head>
+<body>
+<section class="hero animate-up">
+  <div class="eyebrow">Interactive Runtime Console</div>
+  <h1>API Explorer</h1>
+  <p>Compose requests, execute against live endpoints, and inspect full JSON responses without leaving the product surface.</p>
+</section>
+
+<section class="grid">
+  <article class="panel animate-up">
+    <div class="label">Request Builder</div>
+    <div class="row"><label class="label" for="method">Method</label><select id="method"><option>GET</option><option>POST</option></select></div>
+    <div class="row"><label class="label" for="endpoint">Endpoint</label><input id="endpoint" value="/api/stats"></div>
+    <div class="label" style="margin-top:10px">JSON Body</div>
+    <textarea id="body" spellcheck="false">{
+  "text": "Patient James Smith, DOB 04/12/1985, Phone (415) 555-9876, MRN302145.",
+  "save": false
+}</textarea>
+    <div class="actions">
+      <button class="primary" id="send">Send Request</button>
+      <button id="sample-get">Load GET Sample</button>
+      <button id="sample-post">Load POST Sample</button>
+    </div>
+  </article>
+
+  <article class="panel animate-up">
+    <div class="label">Response</div>
+    <pre id="response">No request sent yet.</pre>
+  </article>
+</section>
+
+<section class="routes">
+  <article class="route animate-up"><span class="method">GET /health</span><small>Liveness probe</small></article>
+  <article class="route animate-up"><span class="method">GET /api/stats</span><small>Pipeline statistics</small></article>
+  <article class="route animate-up"><span class="method">POST /api/deidentify</span><small>Run NER and masking</small></article>
+  <article class="route animate-up"><span class="method">POST /api/anomaly-scan</span><small>IsolationForest scan</small></article>
+</section>
+
+<nav class="dock">
+  <a href="/dashboard">Dashboard</a>
+  <a href="/stats">Stats</a>
+  <a href="/api-explorer" class="active">API</a>
+  <a href="/report/summary" target="_blank" rel="noopener">Report</a>
+  <a href="/system-status">Status</a>
+</nav>
+
+<script>
+gsap.registerPlugin(ScrollTrigger);
+
+const MOTION = {
+  revealY: 30,
+  revealDuration: 0.78,
+  revealStart: 'top 90%',
+  ease: 'expo.out',
+  responseDuration: 0.42
+};
+
+gsap.utils.toArray('.animate-up').forEach((el) => {
+  gsap.fromTo(el, { opacity: 0, y: MOTION.revealY }, { opacity: 1, y: 0, duration: MOTION.revealDuration, ease: MOTION.ease, scrollTrigger: { trigger: el, start: MOTION.revealStart, once: true } });
+});
+
+const methodEl = document.getElementById('method');
+const endpointEl = document.getElementById('endpoint');
+const bodyEl = document.getElementById('body');
+const responseEl = document.getElementById('response');
+
+async function sendRequest() {
+  const method = methodEl.value;
+  const endpoint = endpointEl.value.trim();
+  if (!endpoint) return;
+
+  const options = { method, headers: {} };
+  if (method === 'POST') {
+    options.headers['Content-Type'] = 'application/json';
+    try {
+      options.body = JSON.stringify(JSON.parse(bodyEl.value));
+    } catch {
+      responseEl.textContent = 'Invalid JSON body';
+      return;
+    }
+  }
+
+  responseEl.textContent = 'Request in progress...';
+  try {
+    const res = await fetch(endpoint, options);
+    const text = await res.text();
+    let payload;
+    try { payload = JSON.parse(text); } catch { payload = text; }
+    responseEl.textContent = JSON.stringify({ status: res.status, ok: res.ok, data: payload }, null, 2);
+    gsap.fromTo(responseEl, { opacity: 0.35, y: 10 }, { opacity: 1, y: 0, duration: MOTION.responseDuration, ease: MOTION.ease });
+  } catch (err) {
+    responseEl.textContent = `Request failed: ${err.message}`;
+  }
+}
+
+document.getElementById('send').addEventListener('click', sendRequest);
+document.getElementById('sample-get').addEventListener('click', () => {
+  methodEl.value = 'GET';
+  endpointEl.value = '/api/stats';
+});
+document.getElementById('sample-post').addEventListener('click', () => {
+  methodEl.value = 'POST';
+  endpointEl.value = '/api/deidentify';
+  bodyEl.value = JSON.stringify({ text: 'Patient Jane Roe DOB 07/11/1982 Phone 212-555-2100 MRN567890', save: false }, null, 2);
+});
+</script>
+</body>
+</html>
