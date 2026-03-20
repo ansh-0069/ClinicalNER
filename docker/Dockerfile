@@ -47,6 +47,7 @@ ENV FLASK_ENV=production
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV MPLCONFIGDIR=/tmp/matplotlib
+ENV DB_PATH=/app/data/clinicalner.db
 
 # Expose Flask port
 EXPOSE 5000

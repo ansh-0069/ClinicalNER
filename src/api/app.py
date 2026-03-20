@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -47,7 +48,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(mes
 
 # ── Application factory ───────────────────────────────────────────────────────
 
-def create_app(db_path: str = "data/clinicalner.db") -> Flask:
+def create_app(db_path: str | None = None) -> Flask:
     """
     Create and configure the Flask application.
 
@@ -55,6 +56,9 @@ def create_app(db_path: str = "data/clinicalner.db") -> Flask:
     ----------
     db_path : path to SQLite database (override for testing)
     """
+    # Resolve DB path from function arg first, then environment, then fallback.
+    resolved_db_path = db_path or os.getenv("DB_PATH", "data/clinicalner.db")
+
     # Set template folder to absolute path
     template_dir = Path(__file__).parent / "templates"
     app = Flask(__name__, template_folder=str(template_dir), static_folder="static")
@@ -63,15 +67,15 @@ def create_app(db_path: str = "data/clinicalner.db") -> Flask:
     # ── Initialise pipeline components once at startup ────────────────────────
     # Key decision: store in app.config so all request handlers share
     # the same instances — avoids reloading the spaCy model on every request.
-    app.config["DB_PATH"]  = db_path
-    app.config["LOADER"]   = DataLoader(db_path=db_path)
-    app.config["PIPELINE"] = NERPipeline(db_path=db_path, use_spacy=True)
+    app.config["DB_PATH"]  = resolved_db_path
+    app.config["LOADER"]   = DataLoader(db_path=resolved_db_path)
+    app.config["PIPELINE"] = NERPipeline(db_path=resolved_db_path, use_spacy=True)
     app.config["CLEANER"]  = DataCleaner(strict_mode=False)
-    app.config["AUDIT"]    = AuditLogger(db_path=db_path)
+    app.config["AUDIT"]    = AuditLogger(db_path=resolved_db_path)
     app.config["DETECTOR"] = AnomalyDetector(contamination=0.05)
     app.config["PREDICTOR"] = ReadmissionPredictor()
 
-    logger.info("ClinicalNER Flask app initialised | db=%s", db_path)
+    logger.info("ClinicalNER Flask app initialised | db=%s", resolved_db_path)
 
     # ── Register routes ───────────────────────────────────────────────────────
     _register_api_routes(app)
@@ -354,13 +358,18 @@ def _register_api_routes(app: Flask) -> None:
 
 def _register_ui_routes(app: Flask) -> None:
 
-    @app.route("/dashboard")
-    def dashboard():
-        """
-        Live EDA dashboard — renders stats as interactive charts.
-        Uses Chart.js loaded from CDN, data fetched from /api/stats.
-        """
-        return render_template("dashboard_new.html")
+  @app.route("/")
+  def home():
+    """Primary frontend landing page."""
+    return render_template("dashboard_new.html")
+
+  @app.route("/dashboard")
+  def dashboard():
+    """
+    Live EDA dashboard — renders stats as interactive charts.
+    Uses Chart.js loaded from CDN, data fetched from /api/stats.
+    """
+    return render_template("dashboard_new.html")
 
     @app.route("/stats")
     def stats_page():

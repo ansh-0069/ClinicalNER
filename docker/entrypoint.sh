@@ -24,7 +24,9 @@ echo "==> ClinicalNER container starting..."
 mkdir -p /app/data/raw /app/data/eda_outputs
 
 # ── 2. Seed database on first boot ───────────────────────────────────────────
-DB_FILE="/app/data/clinicalner.db"
+DB_FILE="${DB_PATH:-/app/data/clinicalner.db}"
+DB_DIR=$(dirname "$DB_FILE")
+mkdir -p "$DB_DIR"
 
 HAS_NOTES=0
 
@@ -32,7 +34,9 @@ if [ -f "$DB_FILE" ]; then
     HAS_NOTES=$(python - <<'PY'
 import sqlite3
 
-db = "/app/data/clinicalner.db"
+import os
+
+db = os.getenv("DB_PATH", "/app/data/clinicalner.db")
 count = 0
 try:
     conn = sqlite3.connect(db)
@@ -57,7 +61,10 @@ if [ "$HAS_NOTES" -eq 0 ]; then
     python - <<'PY'
 from src.utils.data_loader import DataLoader
 
-loader = DataLoader(raw_dir="data/raw", db_path="data/clinicalner.db")
+import os
+
+db_path = os.getenv("DB_PATH", "data/clinicalner.db")
+loader = DataLoader(raw_dir="data/raw", db_path=db_path)
 df = loader.generate_synthetic_dataset(n_records=500)
 loader.save_to_db(df, table="clinical_notes")
 print("==> Seed complete: 500 rows in clinical_notes")
@@ -75,7 +82,7 @@ import sys
 import os
 sys.path.insert(0, '/app')
 from src.api.app import create_app
-app = create_app(db_path='/app/data/clinicalner.db')
+app = create_app()
 app.run(host='0.0.0.0', port=int(os.getenv('PORT', '5000')), debug=True)
 "
 else
