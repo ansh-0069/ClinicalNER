@@ -8,8 +8,6 @@ Routes
   POST /api/deidentify          — de-identify a clinical note (core API)
   GET  /api/note/<id>           — fetch a processed note by ID
   GET  /api/stats               — corpus + pipeline statistics (JSON)
-  GET  /api/anomaly-scan        — IsolationForest anomaly detection
-  GET  /api/benchmark           — model comparison (regex vs spaCy hybrid)
   GET  /dashboard               — live EDA + audit dashboard (HTML)
   GET  /report/<note_id>        — before/after diff view (HTML)
   GET  /health                  — liveness probe (for Docker/cloud)
@@ -57,10 +55,14 @@ def create_app(db_path: str = "data/clinicalner.db") -> Flask:
     ----------
     db_path : path to SQLite database (override for testing)
     """
+    # Set template folder to absolute path
     template_dir = Path(__file__).parent / "templates"
     app = Flask(__name__, template_folder=str(template_dir), static_folder="static")
-    CORS(app)
+    CORS(app)   # allow cross-origin requests (needed when frontend is separate)
 
+    # ── Initialise pipeline components once at startup ────────────────────────
+    # Key decision: store in app.config so all request handlers share
+    # the same instances — avoids reloading the spaCy model on every request.
     app.config["DB_PATH"]  = db_path
     app.config["LOADER"]   = DataLoader(db_path=db_path)
     app.config["PIPELINE"] = NERPipeline(db_path=db_path, use_spacy=True)
@@ -70,6 +72,7 @@ def create_app(db_path: str = "data/clinicalner.db") -> Flask:
 
     logger.info("ClinicalNER Flask app initialised | db=%s", db_path)
 
+    # ── Register routes ───────────────────────────────────────────────────────
     _register_api_routes(app)
     _register_ui_routes(app)
 
@@ -96,11 +99,24 @@ def _register_api_routes(app: Flask) -> None:
             "note_id":  42,                          ← optional
             "save":     true                         ← optional, default true
           }
+
+        Response (JSON):
+          {
+            "note_id":       42,
+            "original_text": "...",
+            "masked_text":   "...",
+            "entities":      [...],
+            "entity_count":  5,
+            "entity_types":  {"DATE": 2, "PHONE": 1, ...},
+            "is_valid":      true,
+            "changes":       [...]
+          }
         """
         pipeline: NERPipeline = app.config["PIPELINE"]
         cleaner:  DataCleaner = app.config["CLEANER"]
         audit:    AuditLogger = app.config["AUDIT"]
 
+        # ── Input validation ──────────────────────────────────────────────────
         if not request.is_json:
             return jsonify({"error": "Request must be JSON", "status": 400}), 400
 
@@ -115,32 +131,37 @@ def _register_api_routes(app: Flask) -> None:
         if len(text) > 50_000:
             return jsonify({"error": "Text exceeds 50,000 character limit", "status": 413}), 413
 
+        # ── Log API request ───────────────────────────────────────────────────
         audit.log(
             EventType.API_REQUEST,
             description=f"POST /api/deidentify | note_id={note_id} | chars={len(text)}",
             note_id=note_id,
         )
 
+        # ── Pre-NER clean ─────────────────────────────────────────────────────
         pre_result = cleaner.clean_pre_ner(text)
+
+        # ── NER + masking ─────────────────────────────────────────────────────
         ner_result = pipeline.process_note(
             pre_result.cleaned_text,
             note_id=note_id,
             save_to_db=save,
         )
+
+        # ── Post-NER clean + validation ───────────────────────────────────────
         post_result = cleaner.clean_post_ner(ner_result["masked_text"])
 
+        # ── Log NER result ────────────────────────────────────────────────────
         audit.log_ner_result(ner_result)
         audit.log_cleaning_result(post_result, note_id=note_id)
 
+        # ── Build response ────────────────────────────────────────────────────
         response = {
             **ner_result,
             "masked_text":    post_result.cleaned_text,
             "is_valid":       post_result.is_valid,
             "changes":        pre_result.changes + post_result.changes,
-            "avg_confidence": round(
-                sum(e.get("confidence", 0.95) for e in ner_result["entities"]) /
-                max(len(ner_result["entities"]), 1), 3
-            ),
+            "avg_confidence": ner_result.get("avg_confidence", 0.0),
         }
 
         audit.log(
@@ -169,11 +190,15 @@ def _register_api_routes(app: Flask) -> None:
 
     @app.route("/api/stats")
     def stats():
-        """Return corpus + pipeline statistics as JSON."""
-        loader: DataLoader  = app.config["LOADER"]
+        """
+        Return corpus + pipeline statistics as JSON.
+        Consumed by the /dashboard template to render charts.
+        """
+        loader: DataLoader = app.config["LOADER"]
         audit:  AuditLogger = app.config["AUDIT"]
 
         try:
+            # Note counts — return 0 gracefully if tables don't exist yet
             try:
                 note_count = loader.sql_query(
                     "SELECT COUNT(*) as n FROM clinical_notes"
@@ -188,21 +213,27 @@ def _register_api_routes(app: Flask) -> None:
             except Exception:
                 processed_count = 0
 
+            # Entity breakdown
             entity_totals: dict = {}
             try:
+                min_conf = request.args.get("min_confidence", 0.0, type=float)
                 entity_sql = loader.sql_query(
-                    "SELECT entity_types_json FROM processed_notes "
+                    "SELECT entity_types_json, avg_confidence FROM processed_notes "
                     "WHERE entity_types_json IS NOT NULL"
                 )
-                for row in entity_sql["entity_types_json"]:
+                for _, row in entity_sql.iterrows():
                     try:
-                        for k, v in json.loads(row).items():
+                        conf = float(row.get("avg_confidence") or 0)
+                        if conf < min_conf:
+                            continue
+                        for k, v in json.loads(row["entity_types_json"]).items():
                             entity_totals[k] = entity_totals.get(k, 0) + v
                     except Exception:
                         pass
             except Exception:
                 pass
 
+            # Specialty breakdown
             try:
                 specialty = loader.sql_query(
                     "SELECT medical_specialty, COUNT(*) as count "
@@ -212,6 +243,7 @@ def _register_api_routes(app: Flask) -> None:
             except Exception:
                 specialty = []
 
+            # Avg entities per specialty
             try:
                 phi_by_spec = loader.sql_query(
                     "SELECT cn.medical_specialty, "
@@ -223,21 +255,126 @@ def _register_api_routes(app: Flask) -> None:
             except Exception:
                 phi_by_spec = []
 
+            # Audit summary
             audit_summary = audit.get_summary().to_dict(orient="records")
 
             return jsonify({
-                "note_count":         int(note_count),
-                "processed_count":    int(processed_count),
-                "entity_totals":      entity_totals,
-                "specialty":          specialty,
-                "phi_by_specialty":   phi_by_spec,
-                "audit_summary":      audit_summary,
+                "note_count":       int(note_count),
+                "processed_count":  int(processed_count),
+                "entity_totals":    entity_totals,
+                "specialty":        specialty,
+                "phi_by_specialty": phi_by_spec,
+                "audit_summary":    audit_summary,
                 "total_audit_events": audit.total_events(),
             }), 200
 
         except Exception as e:
             logger.error("stats error: %s", e)
             return jsonify({"error": str(e), "status": 500}), 500
+
+
+    @app.route("/api/upload", methods=["POST"])
+    def upload_csv():
+        """
+        Batch de-identification via CSV upload.
+
+        Accepts: multipart/form-data with a CSV file containing a 'text' column.
+        Returns: downloadable de-identified CSV with masked_text + entity_count columns.
+
+        Maps to JD Activity 2: Clean and manage unstructured clinical data.
+        """
+        import io
+        import csv
+        import pandas as pd
+        from flask import Response
+
+        pipeline: NERPipeline = app.config["PIPELINE"]
+        cleaner:  DataCleaner = app.config["CLEANER"]
+        audit:    AuditLogger = app.config["AUDIT"]
+
+        if "file" not in request.files:
+            return jsonify({"error": "No file uploaded. Send a CSV as multipart 'file' field.", "status": 400}), 400
+
+        file = request.files["file"]
+        if not file.filename.endswith(".csv"):
+            return jsonify({"error": "Only CSV files are accepted.", "status": 400}), 400
+
+        try:
+            df = pd.read_csv(file)
+        except Exception as e:
+            return jsonify({"error": f"Could not parse CSV: {e}", "status": 400}), 400
+
+        # Auto-detect text column — try common names
+        text_col = None
+        for candidate in ["text", "transcription", "note", "clinical_note", "content", "body"]:
+            if candidate in df.columns:
+                text_col = candidate
+                break
+
+        if text_col is None:
+            return jsonify({
+                "error": f"No text column found. Expected one of: text, transcription, note. Got: {list(df.columns)}",
+                "status": 400
+            }), 400
+
+        if len(df) > 500:
+            return jsonify({"error": "Maximum 500 rows per upload.", "status": 413}), 413
+
+        # Process each row through the full pipeline
+        results = []
+        total_entities = 0
+
+        for idx, row in df.iterrows():
+            raw_text = str(row[text_col]) if pd.notna(row[text_col]) else ""
+            if not raw_text.strip():
+                results.append({"masked_text": "", "entity_count": 0, "entity_types": "", "is_valid": True, "avg_confidence": 0.0})
+                continue
+
+            pre     = cleaner.clean_pre_ner(raw_text)
+            ner     = pipeline.process_note(pre.cleaned_text, save_to_db=False)
+            post    = cleaner.clean_post_ner(ner["masked_text"])
+
+            entity_types_str = ", ".join(f"{k}:{v}" for k, v in (ner.get("entity_types") or {}).items())
+            total_entities  += ner["entity_count"]
+
+            results.append({
+                "masked_text":    post.cleaned_text,
+                "entity_count":   ner["entity_count"],
+                "entity_types":   entity_types_str,
+                "is_valid":       post.is_valid,
+                "avg_confidence": round(ner.get("avg_confidence", 0.0), 3),
+            })
+
+        # Build output DataFrame — keep all original columns + add de-id columns
+        out_df = df.copy()
+        out_df["masked_text"]    = [r["masked_text"]    for r in results]
+        out_df["entity_count"]   = [r["entity_count"]   for r in results]
+        out_df["entity_types"]   = [r["entity_types"]   for r in results]
+        out_df["is_valid"]       = [r["is_valid"]        for r in results]
+        out_df["avg_confidence"] = [r["avg_confidence"] for r in results]
+
+        # Log batch job
+        audit.log(
+            EventType.PIPELINE_COMPLETE,
+            description=f"Batch upload: {len(df)} notes, {total_entities} entities found",
+            metadata={"rows": len(df), "total_entities": total_entities, "file": file.filename},
+        )
+
+        # Return as downloadable CSV
+        output = io.StringIO()
+        out_df.to_csv(output, index=False)
+        csv_bytes = output.getvalue().encode("utf-8")
+
+        return Response(
+            csv_bytes,
+            mimetype="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename=deidentified_{file.filename}",
+                "X-Total-Rows":       str(len(df)),
+                "X-Total-Entities":   str(total_entities),
+            }
+        )
+
 
     @app.route("/api/anomaly-scan", methods=["POST"])
     def anomaly_scan():
@@ -268,57 +405,8 @@ def _register_api_routes(app: Flask) -> None:
             logger.error("anomaly_scan error: %s", e)
             return jsonify({"error": str(e), "status": 500}), 500
 
-    @app.route("/api/benchmark", methods=["GET"])
-    def benchmark():
-        """
-        Run model benchmark and return F1/precision/recall comparison.
-        GET /api/benchmark
-        """
-        try:
-            from src.evaluation.benchmark import ModelBenchmark
-            bm = ModelBenchmark()
-            results = bm.run([
-                {"name": "regex-only",   "use_spacy": False},
-                {"name": "spacy-hybrid", "use_spacy": True},
-            ])
-            bm.save_report(results, "data/benchmark_results.json")
-            return jsonify({
-                "results":      [r.to_dict() for r in results],
-                "readme_table": bm.generate_readme_table(results),
-                "notes_tested": results[0].notes_tested if results else 0,
-            }), 200
-        except Exception as e:
-            logger.error("benchmark error: %s", e)
-            return jsonify({"error": str(e), "status": 500}), 500
 
-    @app.route("/api/risk-model", methods=["GET"])
-    def risk_model():
-        """
-        GET /api/risk-model
-        Returns trained model metrics and top feature importances.
-        Loads pre-trained model from disk if available, trains if not.
-        """
-        try:
-            from src.models.clinical_risk_model import ClinicalRiskModel
-            import os
-            model_path = "data/models/clinical_risk_model.pkl"
-            data_path  = "data/raw/diabetic_data.csv"
-
-            if os.path.exists(model_path):
-                model = ClinicalRiskModel.load(model_path)
-            else:
-                model = ClinicalRiskModel()
-                model.train(data_path, save_path=model_path)
-
-            return jsonify({
-                "eval_result":        model.eval_result_.to_dict(),
-                "feature_importance": model.feature_importance(top_n=10),
-                "model_path":         model_path,
-            }), 200
-        except Exception as e:
-            logger.error("risk_model error: %s", e)
-            return jsonify({"error": str(e), "status": 500}), 500
-
+# ── UI routes ─────────────────────────────────────────────────────────────────
 
 def _register_ui_routes(app: Flask) -> None:
 
@@ -328,7 +416,7 @@ def _register_ui_routes(app: Flask) -> None:
         Live EDA dashboard — renders stats as interactive charts.
         Uses Chart.js loaded from CDN, data fetched from /api/stats.
         """
-        return render_template("dashboard.html")
+        return render_template_string(DASHBOARD_TEMPLATE)
 
     @app.route("/stats")
     def stats_page():
@@ -336,6 +424,12 @@ def _register_ui_routes(app: Flask) -> None:
         Stats page — displays JSON data in a readable format.
         """
         return render_template("stats.html")
+
+    @app.route("/upload")
+    def upload_page():
+        """Batch CSV de-identification page."""
+        return render_template_string(UPLOAD_TEMPLATE)
+
 
     @app.route("/system-status")
     def system_status():
@@ -347,11 +441,6 @@ def _register_ui_routes(app: Flask) -> None:
     def api_explorer():
         """Interactive API explorer page."""
         return render_template_string(API_EXPLORER_TEMPLATE)
-
-    @app.route("/benchmark-dashboard")
-    def benchmark_dashboard():
-        """NER model evaluation metrics dashboard."""
-        return render_template_string(BENCHMARK_TEMPLATE)
 
 
     @app.route("/report/summary")
@@ -434,455 +523,6 @@ def _register_ui_routes(app: Flask) -> None:
 # In production these would be Jinja2 .html files in templates/.
 
 # ── HTML Templates ────────────────────────────────────────────────────────────
-
-BENCHMARK_TEMPLATE = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ClinicalNER · Model Benchmark</title>
-<meta name="description" content="NER model evaluation — F1, precision, recall, and latency comparison.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,100..900;1,9..144,100..900&family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<style>
-:root {
-  --ink:      #080808;
-  --paper:    #F0EDE6;
-  --lime:     #C8F23C;
-  --lime-dim: rgba(200,242,60,0.10);
-  --glass:    rgba(240,237,230,0.05);
-  --border:   rgba(240,237,230,0.08);
-  --mono:     'IBM Plex Mono', monospace;
-  --serif:    'Fraunces', Georgia, serif;
-  --sans:     'Inter', system-ui, sans-serif;
-}
-*,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: auto; }
-body {
-  background: var(--ink);
-  color: var(--paper);
-  font-family: var(--sans);
-  -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
-}
-::-webkit-scrollbar { width: 3px; }
-::-webkit-scrollbar-track { background: var(--ink); }
-::-webkit-scrollbar-thumb { background: var(--lime); border-radius: 2px; }
-
-/* NAV */
-nav {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 24px 48px;
-  mix-blend-mode: difference;
-}
-.nav-logo { font-family: var(--mono); font-size: 13px; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; }
-.nav-links { display: flex; gap: 32px; list-style: none; }
-.nav-links a { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--paper); text-decoration: none; opacity: .45; transition: opacity .2s; }
-.nav-links a:hover, .nav-links a.active { opacity: 1; }
-
-/* PAGE HERO */
-.bench-hero {
-  padding: 160px 48px 100px;
-  border-bottom: 1px solid var(--border);
-}
-.eyebrow {
-  font-family: var(--mono); font-size: 11px; font-weight: 600;
-  letter-spacing: .22em; text-transform: uppercase; color: var(--lime);
-  display: flex; align-items: center; gap: 14px; margin-bottom: 24px;
-}
-.eyebrow::before { content: ''; display: block; width: 24px; height: 1px; background: var(--lime); }
-.hero-h {
-  font-family: var(--serif);
-  font-size: clamp(48px, 7vw, 110px);
-  font-weight: 900; line-height: .95; letter-spacing: -.03em;
-  margin-bottom: 36px;
-}
-.hero-h em { font-style: italic; color: var(--lime); }
-.hero-sub {
-  font-size: 16px; font-weight: 300; color: rgba(240,237,230,.5);
-  line-height: 1.75; max-width: 52ch;
-}
-.run-btn {
-  margin-top: 40px;
-  display: inline-flex; align-items: center; gap: 12px;
-  padding: 14px 32px; background: var(--lime); color: var(--ink);
-  border: none; border-radius: 2px; cursor: pointer;
-  font-family: var(--mono); font-size: 11px; font-weight: 700;
-  letter-spacing: .14em; text-transform: uppercase;
-  transition: transform .2s, box-shadow .2s;
-}
-.run-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(200,242,60,.25); }
-.run-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
-#bench-status {
-  margin-top: 16px; font-family: var(--mono); font-size: 11px;
-  color: rgba(240,237,230,.3); min-height: 18px;
-}
-
-/* KPI STRIP */
-.kpi-strip {
-  display: grid; grid-template-columns: repeat(5, 1fr);
-  gap: 1px; background: var(--border);
-  border-bottom: 1px solid var(--border);
-}
-.kpi-cell {
-  background: var(--ink); padding: 56px 40px;
-  opacity: 0; transform: translateY(40px);
-}
-.kpi-num {
-  font-family: var(--serif); font-size: clamp(44px, 5vw, 80px);
-  font-weight: 900; line-height: 1; letter-spacing: -.03em;
-  color: var(--lime); display: block; margin-bottom: 12px;
-}
-.kpi-label {
-  font-family: var(--mono); font-size: 10px; font-weight: 600;
-  letter-spacing: .18em; text-transform: uppercase; color: rgba(240,237,230,.35);
-}
-.kpi-sub { margin-top: 6px; font-size: 12px; font-weight: 300; color: rgba(240,237,230,.2); }
-
-/* SECTION ANATOMY */
-.section { padding: 120px 48px; border-bottom: 1px solid var(--border); }
-.section-head { margin-bottom: 64px; }
-.section-title { font-family: var(--serif); font-size: clamp(32px, 4vw, 60px); font-weight: 900; letter-spacing: -.03em; line-height: 1.05; }
-
-/* CHARTS */
-.charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: var(--border); }
-.chart-panel {
-  background: var(--ink); padding: 48px;
-  opacity: 0; transform: translateY(32px);
-}
-.chart-label {
-  font-family: var(--mono); font-size: 10px; font-weight: 600;
-  letter-spacing: .18em; text-transform: uppercase;
-  color: rgba(240,237,230,.3); margin-bottom: 28px;
-}
-.chart-wrap { position: relative; height: 280px; }
-
-/* TABLE */
-.results-table { width: 100%; border-collapse: collapse; }
-.results-table th {
-  font-family: var(--mono); font-size: 10px; font-weight: 600;
-  letter-spacing: .16em; text-transform: uppercase;
-  color: rgba(240,237,230,.3); padding: 0 0 20px;
-  text-align: left; border-bottom: 1px solid var(--border);
-}
-.results-table td {
-  padding: 24px 0; font-size: 14px; font-weight: 400;
-  color: rgba(240,237,230,.7); border-bottom: 1px solid var(--border);
-  vertical-align: middle;
-}
-.results-table tr:last-child td { border-bottom: none; }
-.results-table .model-name { font-family: var(--mono); font-weight: 600; color: var(--paper); font-size: 13px; }
-.f1-val { font-family: var(--serif); font-size: 28px; font-weight: 900; color: var(--lime); }
-.row-reveal { opacity: 0; transform: translateX(-16px); }
-
-/* INSIGHT */
-.insight-block {
-  padding: 64px 48px;
-  border: 1px solid rgba(200,242,60,.15);
-  border-radius: 2px;
-  background: var(--lime-dim);
-  opacity: 0; transform: translateY(24px);
-}
-.insight-label { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--lime); margin-bottom: 20px; }
-.insight-text { font-family: var(--serif); font-size: clamp(20px, 2.5vw, 32px); font-weight: 500; font-style: italic; line-height: 1.45; color: var(--paper); }
-.insight-text strong { font-style: normal; color: var(--lime); }
-
-/* FOOTER */
-footer { padding: 60px 48px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
-.footer-brand { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: rgba(240,237,230,.2); }
-.footer-links { display: flex; gap: 28px; }
-.footer-links a { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: rgba(240,237,230,.25); text-decoration: none; transition: color .2s; }
-.footer-links a:hover { color: var(--lime); }
-
-/* Loading state */
-.loading-msg { text-align: center; padding: 80px; font-family: var(--mono); font-size: 12px; color: rgba(240,237,230,.25); letter-spacing: .1em; }
-</style>
-</head>
-<body>
-
-<!-- NAV -->
-<nav id="main-nav">
-  <div class="nav-logo">ClinicalNER</div>
-  <ul class="nav-links">
-    <li><a href="/dashboard">Home</a></li>
-    <li><a href="#charts">Charts</a></li>
-    <li><a href="#results">Results</a></li>
-    <li><a href="/api-explorer">API</a></li>
-    <li><a href="/benchmark-dashboard" class="active">Benchmark</a></li>
-  </ul>
-</nav>
-
-<!-- HERO -->
-<div class="bench-hero">
-  <div class="eyebrow" id="b-eyebrow">Model Evaluation</div>
-  <h1 class="hero-h" id="b-title">
-    Numbers that<br><em>don't lie.</em>
-  </h1>
-  <p class="hero-sub" id="b-sub">
-    Span-level F1, precision, and recall benchmarked across two pipeline
-    configurations on 30 annotated clinical notes. Exact character-offset
-    matching — a missed PHI token is a failure, full stop.
-  </p>
-  <button class="run-btn" id="run-btn">
-    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-      <path d="M2 6.5h9M7.5 2.5l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-    Run Benchmark
-  </button>
-  <div id="bench-status"></div>
-</div>
-
-<!-- KPI STRIP -->
-<div class="kpi-strip" id="kpi-strip">
-  <div class="kpi-cell"><span class="kpi-num" id="kpi-models">—</span><div class="kpi-label">Models</div></div>
-  <div class="kpi-cell"><span class="kpi-num" id="kpi-notes">—</span><div class="kpi-label">Notes tested</div><div class="kpi-sub">Annotated PHI examples</div></div>
-  <div class="kpi-cell"><span class="kpi-num" id="kpi-f1">—</span><div class="kpi-label">Best F1</div><div class="kpi-sub" id="kpi-f1-model"></div></div>
-  <div class="kpi-cell"><span class="kpi-num" id="kpi-prec">—</span><div class="kpi-label">Best Precision</div></div>
-  <div class="kpi-cell"><span class="kpi-num" id="kpi-rec">—</span><div class="kpi-label">Best Recall</div></div>
-</div>
-
-<!-- CHARTS -->
-<section class="section" id="charts">
-  <div class="section-head">
-    <div class="eyebrow" id="c-eyebrow">Visualisation</div>
-    <h2 class="section-title" id="c-title">Metrics at a glance.</h2>
-  </div>
-  <div class="charts-grid">
-    <div class="chart-panel" id="panel-metrics">
-      <div class="chart-label">Precision · Recall · F1 by model</div>
-      <div class="chart-wrap"><canvas id="metricsChart"></canvas></div>
-    </div>
-    <div class="chart-panel" id="panel-latency">
-      <div class="chart-label">Average inference latency (ms / note)</div>
-      <div class="chart-wrap"><canvas id="latencyChart"></canvas></div>
-    </div>
-  </div>
-</section>
-
-<!-- RESULTS TABLE -->
-<section class="section" id="results">
-  <div class="section-head">
-    <div class="eyebrow" id="r-eyebrow">Full Results</div>
-    <h2 class="section-title" id="r-title">Row by row.</h2>
-  </div>
-  <table class="results-table" id="results-table">
-    <thead>
-      <tr>
-        <th>Model</th>
-        <th>Precision</th>
-        <th>Recall</th>
-        <th>F1 Score</th>
-        <th>Latency</th>
-        <th>Entities found</th>
-      </tr>
-    </thead>
-    <tbody id="results-tbody">
-      <tr><td colspan="6" class="loading-msg">Run benchmark to see results…</td></tr>
-    </tbody>
-  </table>
-</section>
-
-<!-- INSIGHT -->
-<section class="section">
-  <div class="insight-block" id="insight-block">
-    <div class="insight-label">Key Insight</div>
-    <p class="insight-text" id="insight-text">Run the benchmark to generate the analysis.</p>
-  </div>
-</section>
-
-<!-- FOOTER -->
-<footer>
-  <div class="footer-brand">ClinicalNER · Model Benchmark</div>
-  <div class="footer-links">
-    <a href="/dashboard">Dashboard</a>
-    <a href="/system-status">Status</a>
-    <a href="/api/benchmark">Raw JSON</a>
-  </div>
-</footer>
-
-<script>
-gsap.registerPlugin(ScrollTrigger);
-
-/* NAV entrance */
-gsap.from('#main-nav', { y: -20, opacity: 0, duration: 1, ease: 'expo.out', delay: 0.2 });
-
-/* Hero entrance — y-drift only, no opacity:0 on title */
-gsap.from('.eyebrow',   { y: 16, duration: 1.1, ease: 'expo.out', delay: 0.05 });
-gsap.from('.hero-h',    { y: 44, duration: 1.4, ease: 'expo.out', delay: 0.0  });
-gsap.from('.hero-sub',  { y: 28, duration: 1.1, ease: 'expo.out', delay: 0.15 });
-gsap.from('.run-btn',   { y: 16, opacity: 0, duration: 0.9, ease: 'expo.out', delay: 0.3 });
-
-/* Section headings */
-['#c-eyebrow,#c-title', '#r-eyebrow,#r-title'].forEach(sel => {
-  gsap.from(sel, {
-    y: 32, opacity: 0, duration: 1, stagger: 0.1, ease: 'expo.out',
-    scrollTrigger: { trigger: sel.split(',')[0], start: 'top 85%', toggleActions: 'play none none none' }
-  });
-});
-
-/* Smooth nav bg after scroll */
-ScrollTrigger.create({
-  trigger: '.kpi-strip', start: 'top 10%',
-  onEnter:    () => gsap.to('#main-nav', { background: 'rgba(8,8,8,0.88)', backdropFilter: 'blur(16px)', duration: 0.4 }),
-  onLeaveBack:() => gsap.to('#main-nav', { background: 'transparent', backdropFilter: 'blur(0px)', duration: 0.4 }),
-});
-
-/* ── Chart.js global theme matching design system ── */
-Chart.defaults.color          = 'rgba(240,237,230,0.35)';
-Chart.defaults.font.family    = "'IBM Plex Mono', monospace";
-Chart.defaults.font.size      = 11;
-Chart.defaults.borderColor    = 'rgba(240,237,230,0.06)';
-Chart.defaults.plugins.legend.labels.boxWidth = 10;
-Chart.defaults.plugins.legend.labels.padding  = 20;
-
-const GRID = { color: 'rgba(240,237,230,0.05)', drawBorder: false };
-const TICK  = { color: 'rgba(240,237,230,0.3)', padding: 10 };
-
-let metricsChart, latencyChart;
-
-/* ── Benchmark fetch & render ── */
-async function runBenchmark(manual = false) {
-  const btn    = document.getElementById('run-btn');
-  const status = document.getElementById('bench-status');
-  btn.disabled = true;
-  btn.textContent = 'Running…';
-  status.textContent = 'Fetching results from /api/benchmark…';
-
-  try {
-    const res  = await fetch('/api/benchmark');
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'API error');
-    const R = data.results;
-
-    /* KPIs */
-    const best = R.reduce((a, b) => a.f1 > b.f1 ? a : b);
-    document.getElementById('kpi-models').textContent = R.length;
-    document.getElementById('kpi-notes').textContent  = data.notes_tested;
-    document.getElementById('kpi-f1').textContent     = best.f1.toFixed(3);
-    document.getElementById('kpi-f1-model').textContent = best.model_name;
-    document.getElementById('kpi-prec').textContent   = Math.max(...R.map(r => r.precision)).toFixed(3);
-    document.getElementById('kpi-rec').textContent    = Math.max(...R.map(r => r.recall)).toFixed(3);
-
-    /* Animate KPI cells */
-    gsap.to('.kpi-cell', {
-      opacity: 1, y: 0, duration: 1, stagger: 0.1, ease: 'expo.out',
-      scrollTrigger: { trigger: '#kpi-strip', start: 'top 85%', toggleActions: 'play none none none' }
-    });
-
-    /* CHARTS */
-    const labels = R.map(r => r.model_name);
-    const LIME   = 'rgba(200,242,60,1)';
-    const LIMEDIM= 'rgba(200,242,60,0.45)';
-    const PAPER  = 'rgba(240,237,230,0.55)';
-
-    if (metricsChart) metricsChart.destroy();
-    metricsChart = new Chart(document.getElementById('metricsChart'), {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [
-          { label: 'Precision', data: R.map(r => r.precision), backgroundColor: PAPER, borderRadius: 2 },
-          { label: 'Recall',    data: R.map(r => r.recall),    backgroundColor: LIMEDIM, borderRadius: 2 },
-          { label: 'F1',        data: R.map(r => r.f1),        backgroundColor: LIME,   borderRadius: 2 },
-        ]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        scales: {
-          x: { grid: GRID, ticks: TICK },
-          y: { min: 0, max: 1, grid: GRID, ticks: { ...TICK, callback: v => v.toFixed(1) } }
-        },
-        plugins: {
-          legend: { labels: { color: 'rgba(240,237,230,0.45)' } },
-          tooltip: { backgroundColor: '#181818', borderColor: 'rgba(200,242,60,0.2)', borderWidth: 1 }
-        },
-        animation: { duration: 1200, easing: 'easeOutExpo' }
-      }
-    });
-
-    if (latencyChart) latencyChart.destroy();
-    latencyChart = new Chart(document.getElementById('latencyChart'), {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [{ label: 'Latency (ms)', data: R.map(r => r.latency_ms), backgroundColor: LIME, borderRadius: 2 }]
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        scales: {
-          x: { grid: GRID, ticks: TICK },
-          y: { grid: GRID, ticks: { ...TICK, callback: v => v + 'ms' } }
-        },
-        plugins: {
-          legend: { labels: { color: 'rgba(240,237,230,0.45)' } },
-          tooltip: { backgroundColor: '#181818', borderColor: 'rgba(200,242,60,0.2)', borderWidth: 1, callbacks: { label: ctx => ` ${ctx.parsed.y.toFixed(1)}ms` } }
-        },
-        animation: { duration: 1200, easing: 'easeOutExpo' }
-      }
-    });
-
-    /* Animate chart panels in */
-    gsap.to(['#panel-metrics','#panel-latency'], {
-      opacity: 1, y: 0, duration: 1.1, stagger: 0.15, ease: 'expo.out',
-      scrollTrigger: { trigger: '#charts', start: 'top 80%', toggleActions: 'play none none none' }
-    });
-
-    /* TABLE */
-    document.getElementById('results-tbody').innerHTML = R.map((r, i) => `
-      <tr class="row-reveal">
-        <td class="model-name">${r.model_name}</td>
-        <td>${(r.precision * 100).toFixed(1)}%</td>
-        <td>${(r.recall * 100).toFixed(1)}%</td>
-        <td class="f1-val">${r.f1.toFixed(3)}</td>
-        <td style="font-family:var(--mono);font-size:13px">${r.latency_ms.toFixed(1)}<span style="opacity:.4">ms</span></td>
-        <td style="font-family:var(--mono);font-size:13px">${r.entities_found}</td>
-      </tr>`).join('');
-
-    gsap.to('.row-reveal', {
-      opacity: 1, x: 0, duration: 0.9, stagger: 0.12, ease: 'expo.out',
-      scrollTrigger: { trigger: '#results', start: 'top 80%', toggleActions: 'play none none none' }
-    });
-
-    /* INSIGHT */
-    const base  = R[0];
-    const delta = ((best.f1 - base.f1) / Math.max(base.f1, 0.001) * 100).toFixed(1);
-    document.getElementById('insight-text').innerHTML = best.model_name === base.model_name
-      ? `<strong>Regex-only baseline wins</strong> on this test set (F1 ${best.f1.toFixed(3)}). Structured PHI — dates, MRNs, phones — is handled near-perfectly by deterministic rules. The spaCy layer adds value on unstructured entities not captured here.`
-      : `<strong>${best.model_name} outperforms the baseline by ${delta}%</strong> (F1 ${best.f1.toFixed(3)} vs ${base.f1.toFixed(3)}). The ${best.latency_ms.toFixed(1)}ms-per-note latency is well within acceptable bounds for clinical batch processing workloads.`;
-
-    gsap.to('#insight-block', {
-      opacity: 1, y: 0, duration: 1.1, ease: 'expo.out',
-      scrollTrigger: { trigger: '#insight-block', start: 'top 85%', toggleActions: 'play none none none' }
-    });
-
-    status.textContent = `✓ ${data.notes_tested} examples · span-level exact match · ${new Date().toLocaleTimeString()}`;
-
-  } catch (e) {
-    status.textContent = 'Error: ' + e.message;
-    status.style.color = '#FCA5A5';
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M2 6.5h9M7.5 2.5l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Rerun`;
-  }
-}
-
-document.getElementById('run-btn').addEventListener('click', () => runBenchmark(true));
-
-/* Auto-run when scrolled to KPI strip */
-ScrollTrigger.create({
-  trigger: '#kpi-strip', start: 'top 90%',
-  onEnter: () => runBenchmark(false),
-  once: true
-});
-</script>
-</body>
-</html>"""
-
 
 DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="en">
@@ -1437,6 +1077,13 @@ tbody tr:hover td { background: var(--bg3); color: var(--txt); }
         </svg>
         API Explorer
       </a>
+      <a href="/upload" class="nav-item">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M8 10V3M5 6l3-3 3 3" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M2 11v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2" stroke-linecap="round"/>
+        </svg>
+        Batch Upload
+      </a>
       <a href="/system-status" class="nav-item">
         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M8 2a6 6 0 1 1 0 12A6 6 0 0 1 8 2zm0 4v4m0 2v.5" stroke-linecap="round"/>
@@ -1538,6 +1185,59 @@ tbody tr:hover td { background: var(--bg3); color: var(--txt); }
             <div class="chart-badge">DONUT</div>
           </div>
           <canvas id="auditChart"></canvas>
+        </div>
+      </div>
+
+
+      <!-- Confidence Threshold Slider -->
+      <div class="section-header" style="margin-top:8px;">
+        <span class="section-title">Confidence Filter</span>
+        <div class="section-line"></div>
+      </div>
+
+      <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:16px;padding:24px 28px;box-shadow:var(--shadow);margin-bottom:36px;opacity:0;animation:card-in .5s ease .58s forwards;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px;">
+          <div>
+            <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--txt);margin-bottom:4px;">Entity confidence threshold</div>
+            <div style="font-family:'DM Mono',monospace;font-size:12px;font-weight:500;color:var(--txt3);">Filter entity chart and table to show only notes with avg confidence ≥ threshold</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;">
+            <div style="text-align:center;">
+              <div style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--teal);line-height:1;" id="conf-display">0%</div>
+              <div style="font-family:'DM Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--txt3);margin-top:4px;">Min confidence</div>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--txt);line-height:1;" id="conf-notes-shown">—</div>
+              <div style="font-family:'DM Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--txt3);margin-top:4px;">Notes shown</div>
+            </div>
+            <button onclick="resetConfidence()" style="font-family:'DM Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.08em;padding:8px 16px;border-radius:8px;border:1px solid var(--border2);background:var(--card-bg);color:var(--txt3);cursor:pointer;transition:all .2s;" onmouseover="this.style.borderColor='var(--teal)';this.style.color='var(--teal)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--txt3)'">Reset</button>
+          </div>
+        </div>
+
+        <!-- Slider track -->
+        <div style="position:relative;margin-bottom:16px;">
+          <input type="range" id="conf-slider" min="0" max="100" value="0" step="5"
+            style="width:100%;height:6px;border-radius:3px;outline:none;-webkit-appearance:none;appearance:none;background:linear-gradient(90deg,var(--teal) 0%,var(--teal) 0%,var(--border) 0%,var(--border) 100%);cursor:pointer;"
+            oninput="onSliderMove(this.value)">
+        </div>
+
+        <!-- Tick labels -->
+        <div style="display:flex;justify-content:space-between;font-family:'DM Mono',monospace;font-size:10px;font-weight:600;color:var(--txt3);letter-spacing:.06em;margin-bottom:18px;">
+          <span>0%</span><span>25%</span><span>50%</span><span>75%</span><span>100%</span>
+        </div>
+
+        <!-- Confidence band legend -->
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:500;color:var(--txt2);">
+            <div style="width:10px;height:10px;border-radius:50%;background:var(--teal);"></div>High confidence (≥ 90%)
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:500;color:var(--txt2);">
+            <div style="width:10px;height:10px;border-radius:50%;background:var(--amber);"></div>Medium (70–89%)
+          </div>
+          <div style="display:flex;align-items:center;gap:7px;font-size:13px;font-weight:500;color:var(--txt2);">
+            <div style="width:10px;height:10px;border-radius:50%;background:var(--red);"></div>Low (< 70%) — review recommended
+          </div>
+          <div style="margin-left:auto;font-family:'DM Mono',monospace;font-size:11px;font-weight:500;color:var(--txt3);" id="conf-filter-label">No filter active</div>
         </div>
       </div>
 
@@ -1715,6 +1415,72 @@ async function load() {
 
 load();
 setInterval(load, 30000);
+
+// ── Confidence threshold slider ────────────────────────────────────────
+let currentConfidence = 0;
+let debounceConf = null;
+
+function updateSliderTrack(val) {
+  const slider = document.getElementById('conf-slider');
+  slider.style.background = `linear-gradient(90deg, var(--teal) ${val}%, var(--teal) ${val}%, var(--border) ${val}%, var(--border) 100%)`;
+}
+
+function onSliderMove(val) {
+  val = parseInt(val);
+  currentConfidence = val;
+  document.getElementById('conf-display').textContent = val + '%';
+  updateSliderTrack(val);
+
+  const label = document.getElementById('conf-filter-label');
+  if (val === 0) {
+    label.textContent = 'No filter active';
+    label.style.color = 'var(--txt3)';
+  } else {
+    label.textContent = `Showing notes with avg confidence ≥ ${val}%`;
+    label.style.color = val >= 90 ? 'var(--teal)' : val >= 70 ? 'var(--amber)' : 'var(--red)';
+  }
+
+  clearTimeout(debounceConf);
+  debounceConf = setTimeout(() => loadWithConfidence(val / 100), 350);
+}
+
+function resetConfidence() {
+  currentConfidence = 0;
+  document.getElementById('conf-slider').value = 0;
+  onSliderMove(0);
+}
+
+async function loadWithConfidence(minConf) {
+  try {
+    const url   = minConf > 0 ? `/api/stats?min_confidence=${minConf}` : '/api/stats';
+    const res   = await fetch(url);
+    const data  = await res.json();
+    if (data.error) return;
+
+    // Update entity donut with filtered data
+    destroyChart('entityChart');
+    if (Object.keys(data.entity_totals).length > 0) {
+      donut('entityChart', Object.keys(data.entity_totals), Object.values(data.entity_totals));
+    } else {
+      const canvas = document.getElementById('entityChart');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.font = '13px DM Mono, monospace';
+      ctx.fillStyle = 'var(--txt3)';
+      ctx.textAlign = 'center';
+      ctx.fillText('No entities at this threshold', canvas.width/2, canvas.height/2);
+    }
+
+    // Update processed count display
+    document.getElementById('conf-notes-shown').textContent =
+      data.processed_count.toLocaleString();
+
+  } catch(e) {
+    console.error('Confidence filter error:', e);
+  }
+}
+
+
 </script>
 
 </script>
@@ -1844,7 +1610,10 @@ async function callAPI(text) {
     }).join('');
     document.getElementById('entity-summary').textContent = d.entity_count + ' entities';
     document.getElementById('m-count').textContent = d.entity_count;
-    document.getElementById('m-conf').textContent = (((d.avg_confidence||0)*100).toFixed(0)) + '%';
+    const confPct = ((d.avg_confidence||0)*100).toFixed(0);
+    const confEl = document.getElementById('m-conf');
+    confEl.textContent = confPct + '%';
+    confEl.style.color = confPct >= 90 ? 'var(--teal)' : confPct >= 70 ? 'var(--amber)' : 'var(--red)';
     document.getElementById('m-types').textContent = Object.keys(counts).length;
     const ve = document.getElementById('m-valid');
     ve.textContent = d.is_valid ? 'Yes' : 'No';
@@ -2601,6 +2370,376 @@ async function checkStatus() {
   }
 }
 checkStatus();
+</script>
+</body>
+</html>"""
+UPLOAD_TEMPLATE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Batch Upload · ClinicalNER</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F8FAFC;--bg2:#FFFFFF;--bg3:#F1F5F9;--border:#E2E8F0;--border2:#CBD5E1;
+  --teal:#0F766E;--teal-l:rgba(15,118,110,0.1);--amber:#D97706;--amber-l:rgba(217,119,6,0.1);
+  --red:#E11D48;--blue:#2563EB;--blue-l:rgba(37,99,235,0.1);
+  --txt:#0F172A;--txt2:#334155;--txt3:#64748B;
+  --shadow:0 4px 6px -1px rgba(0,0,0,0.05),0 2px 4px -2px rgba(0,0,0,0.025);
+  --shadow-h:0 10px 15px -3px rgba(0,0,0,0.08),0 4px 6px -4px rgba(0,0,0,0.04);}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Instrument Sans',sans-serif;background:var(--bg);color:var(--txt);min-height:100vh;}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(15,118,110,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(15,118,110,0.03) 1px,transparent 1px);background-size:48px 48px;pointer-events:none;z-index:0;}
+.layout{display:flex;min-height:100vh;position:relative;z-index:1;}
+.sidebar{width:240px;flex-shrink:0;background:rgba(255,255,255,0.9);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:28px 0;position:sticky;top:0;height:100vh;z-index:50;}
+.sidebar-logo{padding:0 24px 32px;border-bottom:1px solid var(--border);margin-bottom:20px;}
+.logo-mark{font-family:'Syne',sans-serif;font-size:19px;font-weight:800;letter-spacing:-0.5px;color:var(--teal);display:flex;align-items:center;gap:10px;}
+.logo-dot{width:8px;height:8px;background:var(--teal);border-radius:50%;box-shadow:0 0 10px rgba(15,118,110,.4);animation:pulse 2s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.6;transform:scale(.8);}}
+.logo-sub{font-family:'DM Mono',monospace;font-size:9px;font-weight:600;color:var(--txt3);letter-spacing:.12em;text-transform:uppercase;margin-top:6px;}
+.nav-section{padding:0 12px;flex:1;}
+.nav-label{font-family:'DM Mono',monospace;font-size:10px;font-weight:600;color:var(--txt3);letter-spacing:.12em;text-transform:uppercase;padding:0 16px;margin-bottom:8px;margin-top:20px;}
+.nav-item{display:flex;align-items:center;gap:12px;padding:10px 16px;border-radius:8px;font-size:14px;font-weight:600;color:var(--txt2);transition:all .2s;margin-bottom:4px;text-decoration:none;}
+.nav-item:hover{background:var(--bg3);color:var(--teal);transform:translateX(2px);}
+.nav-item.active{background:var(--teal-l);color:var(--teal);border-left:3px solid var(--teal);}
+.nav-icon{width:18px;stroke-width:2px;opacity:.8;}
+.sidebar-footer{padding:20px 24px 0;border-top:1px solid var(--border);}
+.status-badge{display:flex;align-items:center;gap:8px;font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--teal);background:var(--teal-l);padding:8px 14px;border-radius:20px;}
+.status-dot{width:6px;height:6px;background:var(--teal);border-radius:50%;animation:pulse 2s ease-in-out infinite;}
+.main{flex:1;display:flex;flex-direction:column;min-width:0;}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:20px 36px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.9);}
+.topbar-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;}
+.topbar-path{font-family:'DM Mono',monospace;font-size:11px;font-weight:500;color:var(--txt3);letter-spacing:.08em;margin-top:4px;}
+.topbar-right{display:flex;gap:12px;align-items:center;}
+.tag{font-family:'DM Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.1em;padding:6px 14px;border-radius:20px;text-transform:uppercase;}
+.tag-teal{background:var(--teal-l);color:var(--teal);border:1px solid rgba(15,118,110,.2);}
+.tag-amber{background:var(--amber-l);color:var(--amber);border:1px solid rgba(217,119,6,.2);}
+.content{padding:36px;flex:1;max-width:900px;}
+.section-hdr{display:flex;align-items:center;gap:16px;margin-bottom:28px;}
+.section-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:800;letter-spacing:.15em;text-transform:uppercase;color:var(--txt2);}
+.section-line{flex:1;height:1px;background:linear-gradient(90deg,var(--border),transparent);}
+/* Drop zone */
+.drop-zone{background:var(--bg2);border:2px dashed var(--border2);border-radius:20px;padding:56px 40px;text-align:center;cursor:pointer;transition:all .25s;box-shadow:var(--shadow);}
+.drop-zone:hover,.drop-zone.drag-over{border-color:var(--teal);background:var(--teal-l);transform:translateY(-2px);box-shadow:var(--shadow-h);}
+.drop-icon{width:52px;height:52px;margin:0 auto 18px;background:var(--teal-l);border-radius:16px;display:flex;align-items:center;justify-content:center;}
+.drop-title{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--txt);margin-bottom:8px;}
+.drop-sub{font-size:14px;font-weight:500;color:var(--txt3);margin-bottom:24px;}
+.btn{font-family:'DM Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;padding:13px 28px;border-radius:10px;border:none;cursor:pointer;transition:all .2s;}
+.btn-primary{background:var(--teal);color:#fff;box-shadow:0 4px 6px -1px rgba(15,118,110,.3);}
+.btn-primary:hover{background:#0D9488;transform:translateY(-1px);box-shadow:0 8px 10px -1px rgba(15,118,110,.3);}
+.btn-outline{background:var(--bg2);color:var(--txt2);border:1px solid var(--border2);box-shadow:var(--shadow);}
+.btn-outline:hover{border-color:var(--teal);color:var(--teal);}
+.requirements{margin-top:20px;display:flex;justify-content:center;gap:24px;flex-wrap:wrap;}
+.req-item{font-family:'DM Mono',monospace;font-size:11px;font-weight:500;color:var(--txt3);display:flex;align-items:center;gap:6px;}
+.req-dot{width:5px;height:5px;border-radius:50%;background:var(--teal);}
+/* Progress */
+.progress-card{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:28px;box-shadow:var(--shadow);display:none;}
+.progress-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}
+.progress-title{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;}
+.progress-bar-wrap{background:var(--bg3);border-radius:99px;height:8px;overflow:hidden;margin-bottom:12px;}
+.progress-bar-fill{height:8px;background:linear-gradient(90deg,var(--teal),#10B981);border-radius:99px;width:0%;transition:width .4s ease;}
+.progress-text{font-family:'DM Mono',monospace;font-size:12px;font-weight:500;color:var(--txt3);}
+/* Results */
+.results-card{background:var(--bg2);border:1px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:var(--shadow);display:none;}
+.results-header{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;background:var(--bg3);border-bottom:1px solid var(--border);}
+.results-title{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;}
+.stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:20px 24px;border-bottom:1px solid var(--border);}
+.stat-mini{text-align:center;}
+.stat-mini-val{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--teal);}
+.stat-mini-lbl{font-family:'DM Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--txt3);margin-top:4px;}
+.preview-wrap{padding:0 24px 20px;overflow-x:auto;}
+.preview-wrap table{width:100%;border-collapse:collapse;font-size:13px;margin-top:16px;}
+.preview-wrap th{font-family:'DM Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--txt3);padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;}
+.preview-wrap td{padding:10px 12px;border-bottom:1px solid var(--bg3);color:var(--txt2);font-weight:500;vertical-align:top;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.preview-wrap tr:last-child td{border-bottom:none;}
+.preview-wrap tr:hover td{background:var(--bg3);}
+.token{font-family:'DM Mono',monospace;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;}
+.tok-date{background:var(--blue-l);color:var(--blue);}
+.tok-phone{background:var(--teal-l);color:var(--teal);}
+.tok-mrn{background:var(--amber-l);color:var(--amber);}
+.tok-hospital{background:rgba(124,58,237,0.1);color:#7C3AED;}
+.tok-age{background:rgba(14,165,233,0.1);color:#0EA5E9;}
+.tok-person{background:rgba(225,29,72,0.1);color:var(--red);}
+.tok-default{background:var(--bg3);color:var(--txt3);}
+.download-row{padding:20px 24px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--bg3);}
+.download-info{font-size:13px;font-weight:500;color:var(--txt3);}
+.sample-template{margin-top:20px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.sample-header{padding:14px 18px;background:var(--bg3);border-bottom:1px solid var(--border);font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:var(--txt3);letter-spacing:.1em;text-transform:uppercase;display:flex;align-items:center;justify-content:space-between;}
+.sample-body{padding:16px 18px;font-family:'DM Mono',monospace;font-size:12px;font-weight:500;color:var(--txt2);line-height:1.8;}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark"><div class="logo-dot"></div>ClinicalNER</div>
+    <div class="logo-sub">De-identification Platform</div>
+  </div>
+  <div class="nav-section">
+    <div class="nav-label">Analytics</div>
+    <a href="/dashboard" class="nav-item">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>
+      Dashboard
+    </a>
+    <div class="nav-label">Tools</div>
+    <a href="/api-explorer" class="nav-item">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 2"/></svg>
+      API Explorer
+    </a>
+    <a href="/upload" class="nav-item active">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 10V3M5 6l3-3 3 3" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 11v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2" stroke-linecap="round"/></svg>
+      Batch Upload
+    </a>
+    <a href="/system-status" class="nav-item">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2a6 6 0 1 1 0 12A6 6 0 0 1 8 2zm0 4v4m0 2v.5" stroke-linecap="round"/></svg>
+      System Status
+    </a>
+  </div>
+  <div class="sidebar-footer">
+    <div class="status-badge"><div class="status-dot"></div>System Online</div>
+  </div>
+</nav>
+
+<div class="main">
+  <div class="topbar">
+    <div>
+      <div class="topbar-title">Batch De-identification</div>
+      <div class="topbar-path">ClinicalNER / upload</div>
+    </div>
+    <div class="topbar-right">
+      <span class="tag tag-teal">CSV Upload</span>
+      <span class="tag tag-amber">Max 500 rows</span>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="section-hdr">
+      <span class="section-title">Upload clinical notes</span>
+      <div class="section-line"></div>
+    </div>
+
+    <!-- Drop zone -->
+    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+      <div class="drop-icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0F766E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+      </div>
+      <div class="drop-title">Drop your CSV here</div>
+      <div class="drop-sub">or click to browse — de-identifies all notes instantly</div>
+      <button class="btn btn-primary" onclick="event.stopPropagation();document.getElementById('file-input').click()">Choose CSV file</button>
+      <div class="requirements">
+        <div class="req-item"><div class="req-dot"></div>Must have a 'text' or 'transcription' column</div>
+        <div class="req-item"><div class="req-dot"></div>Maximum 500 rows</div>
+        <div class="req-item"><div class="req-dot"></div>UTF-8 encoded CSV</div>
+      </div>
+    </div>
+    <input type="file" id="file-input" accept=".csv" style="display:none" onchange="handleFile(this.files[0])">
+
+    <!-- Progress -->
+    <div class="progress-card" id="progress-card" style="margin-top:20px;">
+      <div class="progress-header">
+        <div class="progress-title" id="progress-title">Processing…</div>
+        <span class="tag tag-teal" id="progress-tag">Running</span>
+      </div>
+      <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progress-bar"></div></div>
+      <div class="progress-text" id="progress-text">Uploading file…</div>
+    </div>
+
+    <!-- Results -->
+    <div class="results-card" id="results-card" style="margin-top:20px;">
+      <div class="results-header">
+        <div class="results-title">De-identification complete</div>
+        <span class="tag tag-teal">ICH E6 compliant</span>
+      </div>
+      <div class="stats-row">
+        <div class="stat-mini">
+          <div class="stat-mini-val" id="r-rows">—</div>
+          <div class="stat-mini-lbl">Notes processed</div>
+        </div>
+        <div class="stat-mini">
+          <div class="stat-mini-val" id="r-entities" style="color:var(--amber)">—</div>
+          <div class="stat-mini-lbl">PHI entities masked</div>
+        </div>
+        <div class="stat-mini">
+          <div class="stat-mini-val" id="r-valid" style="color:var(--blue)">—</div>
+          <div class="stat-mini-lbl">Valid outputs</div>
+        </div>
+      </div>
+      <div class="preview-wrap">
+        <div style="font-family:'DM Mono',monospace;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--txt3);margin-bottom:4px;">Preview (first 5 rows)</div>
+        <table id="preview-table"></table>
+      </div>
+      <div class="download-row">
+        <div class="download-info" id="download-info">Ready to download</div>
+        <button class="btn btn-primary" id="download-btn" onclick="downloadResult()">Download de-identified CSV</button>
+      </div>
+    </div>
+
+    <!-- CSV template -->
+    <div class="section-hdr" style="margin-top:36px;">
+      <span class="section-title">Expected format</span>
+      <div class="section-line"></div>
+    </div>
+    <div class="sample-template">
+      <div class="sample-header">
+        <span>sample_notes.csv</span>
+        <button class="btn btn-outline" style="padding:6px 14px;font-size:10px;" onclick="downloadTemplate()">Download template</button>
+      </div>
+      <div class="sample-body">text,medical_specialty,note_id<br>
+"Patient James Smith DOB: 04/12/1985. Phone: (415) 555-9876. MRN302145.",Cardiology,1<br>
+"Admitted to St. Mary's Hospital on 01/15/2024. Age: 45-year-old male.",Surgery,2<br>
+"Follow-up at Memorial Medical Center on 03/01/2024. MRN: MRN456789.",Neurology,3</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+let csvBlob = null;
+let resultData = null;
+
+const dropZone = document.getElementById('drop-zone');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.name.endsWith('.csv')) handleFile(file);
+  else alert('Please drop a CSV file.');
+});
+
+function handleFile(file) {
+  if (!file) return;
+  document.getElementById('progress-card').style.display = 'block';
+  document.getElementById('results-card').style.display  = 'none';
+  document.getElementById('progress-title').textContent = `Processing ${file.name}`;
+  document.getElementById('progress-text').textContent = 'Uploading and running NER pipeline…';
+  document.getElementById('progress-bar').style.width = '15%';
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  // Animate progress bar while waiting
+  let pct = 15;
+  const ticker = setInterval(() => {
+    pct = Math.min(pct + 3, 85);
+    document.getElementById('progress-bar').style.width = pct + '%';
+  }, 400);
+
+  fetch('/api/upload', { method: 'POST', body: formData })
+    .then(async res => {
+      clearInterval(ticker);
+      document.getElementById('progress-bar').style.width = '100%';
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Upload failed');
+      }
+
+      const totalRows     = res.headers.get('X-Total-Rows')     || '?';
+      const totalEntities = res.headers.get('X-Total-Entities') || '?';
+      csvBlob = await res.blob();
+
+      document.getElementById('progress-tag').textContent = 'Complete';
+      document.getElementById('progress-text').textContent = `${totalRows} notes processed · ${totalEntities} entities masked`;
+
+      // Parse CSV for preview
+      const text = await csvBlob.text();
+      showResults(text, parseInt(totalRows), parseInt(totalEntities), file.name);
+    })
+    .catch(err => {
+      clearInterval(ticker);
+      document.getElementById('progress-tag').textContent = 'Error';
+      document.getElementById('progress-tag').style.background = 'rgba(225,29,72,0.1)';
+      document.getElementById('progress-tag').style.color = '#E11D48';
+      document.getElementById('progress-text').textContent = 'Error: ' + err.message;
+      document.getElementById('progress-bar').style.background = '#E11D48';
+    });
+}
+
+function showResults(csvText, totalRows, totalEntities, filename) {
+  const lines = csvText.trim().split('\n');
+  const headers = lines[0].split(',').map(h => h.replace(/"/g,'').trim());
+
+  // Count valid rows
+  const maskedIdx = headers.indexOf('masked_text');
+  const validIdx  = headers.indexOf('is_valid');
+  let validCount  = 0;
+  lines.slice(1).forEach(line => {
+    if (line.includes('True') || line.includes('true')) validCount++;
+  });
+
+  document.getElementById('r-rows').textContent     = totalRows || lines.length - 1;
+  document.getElementById('r-entities').textContent = totalEntities;
+  document.getElementById('r-valid').textContent    = validCount;
+  document.getElementById('download-info').textContent = `${filename} → deidentified_${filename}`;
+
+  // Build preview table (first 5 data rows, key columns only)
+  const SHOW_COLS = ['text','masked_text','entity_count','entity_types','is_valid'];
+  const colIdxs   = SHOW_COLS.map(c => headers.indexOf(c)).filter(i => i >= 0);
+  const showHdrs  = colIdxs.map(i => headers[i]);
+
+  let tableHtml = '<tr>' + showHdrs.map(h => `<th>${h}</th>`).join('') + '</tr>';
+
+  lines.slice(1, 6).forEach(line => {
+    const cells = parseCsvLine(line);
+    tableHtml += '<tr>' + colIdxs.map(i => {
+      let val = (cells[i] || '').replace(/^"|"$/g,'');
+      if (headers[i] === 'masked_text') val = highlightTokens(val);
+      else val = escHtml(val.slice(0, 60) + (val.length > 60 ? '…' : ''));
+      return `<td title="${escHtml(cells[i]||'')}">${val}</td>`;
+    }).join('') + '</tr>';
+  });
+
+  document.getElementById('preview-table').innerHTML = tableHtml;
+  document.getElementById('results-card').style.display = 'block';
+}
+
+function parseCsvLine(line) {
+  const result = []; let cur = ''; let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { inQ = !inQ; continue; }
+    if (ch === ',' && !inQ) { result.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  result.push(cur);
+  return result;
+}
+
+const TOK_CLASS = {DATE:'tok-date',DOB:'tok-date',PHONE:'tok-phone',MRN:'tok-mrn',
+  HOSPITAL:'tok-hospital',AGE:'tok-age',PERSON:'tok-person'};
+
+function highlightTokens(text) {
+  return escHtml(text).replace(/\[([A-Z]+)\]/g, (m, label) =>
+    `<span class="token ${TOK_CLASS[label]||'tok-default'}">${m}</span>`);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function downloadResult() {
+  if (!csvBlob) return;
+  const url = URL.createObjectURL(csvBlob);
+  const a   = document.createElement('a');
+  a.href = url; a.download = 'deidentified_output.csv'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadTemplate() {
+  const csv = `text,medical_specialty,note_id\n"Patient James Smith DOB: 04/12/1985. Phone: (415) 555-9876. MRN302145.",Cardiology,1\n"Admitted to St. Mary's Hospital on 01/15/2024. Age: 45-year-old male.",Surgery,2\n"Follow-up at Memorial Medical Center on 03/01/2024. MRN: MRN456789.",Neurology,3`;
+  const blob = new Blob([csv], {type:'text/csv'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a'); a.href=url; a.download='sample_notes.csv'; a.click();
+  URL.revokeObjectURL(url);
+}
 </script>
 </body>
 </html>"""
