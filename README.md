@@ -8,7 +8,6 @@
 ![Docker](https://img.shields.io/badge/docker-ready-blue)
 ![Flask](https://img.shields.io/badge/flask-REST%20API-lightgrey)
 
-
 > **Portfolio Project for Associate Clinical Programmer Role**
 
 An end-to-end NLP pipeline that automates PHI de-identification in clinical trial data, reducing manual processing time by 85% while maintaining 99%+ accuracy and full regulatory compliance.
@@ -18,6 +17,7 @@ An end-to-end NLP pipeline that automates PHI de-identification in clinical tria
 ## 🎯 Business Problem
 
 In clinical trials, manual PHI redaction creates critical bottlenecks:
+
 - **40-60 hours** of manual review per study
 - **2-3 week delays** to database lock
 - **$25,000 cost** per study in labor
@@ -26,6 +26,7 @@ In clinical trials, manual PHI redaction creates critical bottlenecks:
 ## 💡 Solution
 
 Automated de-identification pipeline with quality validation:
+
 - **2-hour processing** for 5,000 notes (95% time reduction)
 - **99.2% PHI detection** rate
 - **Real-time quality validation** against DQP standards
@@ -33,12 +34,12 @@ Automated de-identification pipeline with quality validation:
 
 ## 📊 Impact
 
-| Metric | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| Processing time | 40 hours | 2 hours | **95% reduction** |
-| Cost per study | $25,000 | $2,000 | **$23,000 saved** |
-| Quality pass rate | 92% | 99.2% | **7.2% improvement** |
-| Database lock delay | 3 weeks | 0 weeks | **3 weeks faster** |
+| Metric              | Before           | After                   | Improvement                |
+| ------------------- | ---------------- | ----------------------- | -------------------------- |
+| Processing time     | 40 hours         | 2 hours                 | **95% reduction**    |
+| Cost per study      | $25,000 | $2,000 | **$23,000 saved** |                            |
+| Quality pass rate   | 92%              | 99.2%                   | **7.2% improvement** |
+| Database lock delay | 3 weeks          | 0 weeks                 | **3 weeks faster**   |
 
 **Annual ROI (20 studies)**: $460,000 saved + 60 weeks timeline acceleration
 
@@ -47,18 +48,19 @@ Automated de-identification pipeline with quality validation:
 ## Regulatory context
 
 This pipeline addresses PHI de-identification under:
+
 - **HIPAA Safe Harbor** (45 CFR §164.514) — all 18 PHI identifier categories
 - **ICH E6 (R2) GCP** — audit trail satisfies electronic record requirements
 - **21 CFR Part 11** — append-only AuditLogger supports electronic signature readiness
 
-| PHI Entity | CDISC CDASH Domain | Field      |
-|-----------|-------------------|------------|
-| DATE      | DM / DS           | DMDTC      |
-| DOB       | DM                | BRTHDTC    |
-| MRN       | DM                | USUBJID    |
-| HOSPITAL  | DM                | SITEID     |
-| AGE       | DM                | AGE        |
-| PHONE     | DM                | DMCONTACT  |
+| PHI Entity | CDISC CDASH Domain | Field     |
+| ---------- | ------------------ | --------- |
+| DATE       | DM / DS            | DMDTC     |
+| DOB        | DM                 | BRTHDTC   |
+| MRN        | DM                 | USUBJID   |
+| HOSPITAL   | DM                 | SITEID    |
+| AGE        | DM                 | AGE       |
+| PHONE      | DM                 | DMCONTACT |
 
 ---
 
@@ -122,15 +124,15 @@ Dashboard: **http://localhost:5000/dashboard**
 
 ## API Endpoints
 
-| Method   | Route               | Description                        |
-| -------- | ------------------- | ---------------------------------- |
-| `GET`  | `/health`         | Liveness probe (Docker / cloud LB) |
-| `POST` | `/api/deidentify` | De-identify a clinical note        |
+| Method   | Route                        | Description                                       |
+| -------- | ---------------------------- | ------------------------------------------------- |
+| `GET`  | `/health`                  | Liveness probe (Docker / cloud LB)                |
+| `POST` | `/api/deidentify`          | De-identify a clinical note                       |
 | `POST` | `/api/predict-readmission` | Predict readmission risk from note-level features |
-| `GET`  | `/api/stats`      | Corpus + audit statistics (JSON)   |
-| `GET`  | `/api/note/<id>`  | Fetch a processed note by ID       |
-| `GET`  | `/dashboard`      | Live EDA dashboard (Chart.js)      |
-| `GET`  | `/report/<id>`    | Before/after diff view             |
+| `GET`  | `/api/stats`               | Corpus + audit statistics (JSON)                  |
+| `GET`  | `/api/note/<id>`           | Fetch a processed note by ID                      |
+| `GET`  | `/dashboard`               | Live EDA dashboard (Chart.js)                     |
+| `GET`  | `/report/<id>`             | Before/after diff view                            |
 
 ### Example
 
@@ -207,59 +209,64 @@ Python 3.11 · spaCy · pandas · SQLAlchemy · Flask · gunicorn · Docker · d
 ## ML Models
 
 ### Clinical risk prediction (XGBoost)
+
 Trained on Diabetes-130 dataset (101,766 records, 50 features) to predict
 30-day hospital readmission — a standard CMS quality metric.
 
-| Metric | Score |
-|---|---|
-| ROC-AUC | 0.675 |
-| F1 (macro) | 0.532 |
-| Training set | 81,416 records |
-| Test set | 20,354 records |
-| Features engineered | 42 |
+| Metric              | Score          |
+| ------------------- | -------------- |
+| ROC-AUC             | 0.675          |
+| F1 (macro)          | 0.532          |
+| Training set        | 81,416 records |
+| Test set            | 20,354 records |
+| Features engineered | 42             |
 
 Top predictors: `number_inpatient`, `discharge_disposition_id`,
 `diabetesMed`, `total_prior_visits`, `number_diagnoses`
 
 ### Clinical note readmission scoring (API)
+
 Readmission risk scoring is available at `POST /api/predict-readmission`
 and is backed by `ReadmissionPredictor` in `src/pipeline/readmission_predictor.py`.
 
 Model behavior:
+
 - Auto-fits from `processed_notes` when not yet trained (minimum 50 notes)
 - Supports single-note and batch payloads
 - Returns risk score, risk level, confidence, top factors, and model stats
 
 ### NER benchmark (spaCy vs regex)
-| Model | Precision | Recall | F1 | Latency |
-|---|---|---|---|---|
-| regex-only | 0.807 | 0.868 | 0.836 | 0.1ms |
-| spacy-hybrid | 0.804 | 0.849 | 0.826 | 6.9ms |
+
+| Model        | Precision | Recall | F1    | Latency |
+| ------------ | --------- | ------ | ----- | ------- |
+| regex-only   | 0.807     | 0.868  | 0.836 | 0.1ms   |
+| spacy-hybrid | 0.804     | 0.849  | 0.826 | 6.9ms   |
 
 ---
 
 ## JD Requirements Covered
 
-| Requirement                | Implementation                                               |
-| -------------------------- | ------------------------------------------------------------ |
-| Python / OOP               | 4 classes: DataLoader, NERPipeline, DataCleaner, AuditLogger |
-| SQL                        | SQLite + SQLAlchemy ORM, analytical cross-table queries      |
-| Unstructured clinical data | Free-text NER and masking on MTSamples                       |
-| EDA                        | 5 chart types via ClinicalEDA                                |
+| Requirement                | Implementation                                                   |
+| -------------------------- | ---------------------------------------------------------------- |
+| Python / OOP               | 4 classes: DataLoader, NERPipeline, DataCleaner, AuditLogger     |
+| SQL                        | SQLite + SQLAlchemy ORM, analytical cross-table queries          |
+| Unstructured clinical data | Free-text NER and masking on MTSamples                           |
+| EDA                        | 5 chart types via ClinicalEDA                                    |
 | ML models                  | XGBoost readmission risk model (AUC=0.675) + hybrid NER pipeline |
-| Anomaly detection          | Residual PHI scanning in DataCleaner                         |
-| Flask / Django             | 5 REST routes, consistent HTTP status codes                  |
-| Docker                     | Production Dockerfile, HEALTHCHECK, gunicorn                 |
-| Cloud deployment           | Docker-ready, gunicorn WSGI server                           |
-| Test coverage              | 192 tests, 90% coverage                                      |
-
+| Anomaly detection          | Residual PHI scanning in DataCleaner                             |
+| Flask / Django             | 5 REST routes, consistent HTTP status codes                      |
+| Docker                     | Production Dockerfile, HEALTHCHECK, gunicorn                     |
+| Cloud deployment           | Docker-ready, gunicorn WSGI server                               |
+| Test coverage              | 192 tests, 90% coverage                                          |
 
 ---
 
 ## 🏥 Clinical Trial Features
 
 ### Data Quality Validation
+
 Automated DQP (Data Quality Plan) compliance checks:
+
 ```python
 from src.pipeline.data_quality_validator import DataQualityValidator
 
@@ -275,7 +282,9 @@ report = validator.validate_note(note_id, original, processed, entities)
 ```
 
 ### Regulatory Reporting
+
 Generate ICH E6 compliant reports:
+
 ```python
 from src.reports.clinical_listings import ClinicalReportGenerator
 
@@ -295,7 +304,9 @@ reporter.generate_regulatory_submission_package(study_id='STUDY001')
 ```
 
 ### SQL Analytics
+
 Pre-built queries for clinical data analysis:
+
 ```python
 from src.utils.sql_queries import QUERY_CATALOG
 
@@ -323,6 +334,7 @@ high_risk = loader.sql_query(QUERY_CATALOG['high_risk_notes'])
 ## 🎓 Skills Demonstrated
 
 ### Clinical Data Management
+
 - ✅ Data Quality Plan (DQP) validation
 - ✅ Clinical Study Protocol (CSP) compliance
 - ✅ Regulatory submission preparation
@@ -330,6 +342,7 @@ high_risk = loader.sql_query(QUERY_CATALOG['high_risk_notes'])
 - ✅ CDISC standards alignment
 
 ### Data Science & ML
+
 - ✅ NLP with spaCy (NER)
 - ✅ Anomaly detection (Isolation Forest)
 - ✅ Predictive analytics
@@ -337,6 +350,7 @@ high_risk = loader.sql_query(QUERY_CATALOG['high_risk_notes'])
 - ✅ Model evaluation
 
 ### Software Engineering
+
 - ✅ Object-Oriented Programming (Python)
 - ✅ SQL (SQLite + complex queries)
 - ✅ REST API (Flask)
@@ -345,6 +359,7 @@ high_risk = loader.sql_query(QUERY_CATALOG['high_risk_notes'])
 - ✅ CI/CD ready
 
 ### Regulatory Knowledge
+
 - ✅ HIPAA Safe Harbor method
 - ✅ ICH E6 (R2) GCP guidelines
 - ✅ 21 CFR Part 11 electronic records
@@ -356,6 +371,7 @@ high_risk = loader.sql_query(QUERY_CATALOG['high_risk_notes'])
 ## 💼 Resume Highlights
 
 **Key Achievements:**
+
 - Developed end-to-end clinical data pipeline reducing manual PHI redaction time by **85%**
 - Implemented HIPAA-compliant de-identification with **99.2% accuracy** and ICH E6 audit trail
 - Built data quality validation framework aligned with DQP standards for regulatory submissions
@@ -374,10 +390,10 @@ Clinical Trials • HIPAA • ICH E6 (GCP) • 21 CFR Part 11 • CDISC • Data
 
 ## 📞 Contact
 
-For questions about this project or the Associate Clinical Programmer role:
-- **GitHub**: [github.com/ansh-0069](https://github.com/ansh-0069)
-- **Email**: [your-email@example.com]
-- **LinkedIn**: [linkedin.com/in/your-profile]
+For questions about this project 
+
+- **GitHub**: [github.com/ansh-0069
+  ](https://github.com/ansh-0069)
 
 ---
 

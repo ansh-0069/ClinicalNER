@@ -29,7 +29,7 @@ import os
 import sys
 from pathlib import Path
 
-from flask import Flask, jsonify, request, render_template_string, render_template
+from flask import Flask, jsonify, request, render_template
 from flask_cors import CORS
 
 # Allow imports from project root
@@ -425,10 +425,8 @@ def _register_ui_routes(app: Flask) -> None:
         except Exception as e:
             return f"<h3>Error: {e}</h3>", 500
 
-    @app.route("/report/summary")
-    def report_summary():
-        """Study-level aggregate status report by medical specialty."""
-        loader: DataLoader = app.config["LOADER"]
+    def _build_report_summary_payload(loader: DataLoader) -> dict:
+        """Build summary payload shared by HTML and JSON report routes."""
         try:
             try:
                 stats = loader.sql_query(
@@ -447,29 +445,61 @@ def _register_ui_routes(app: Flask) -> None:
                     """
                 ).to_dict(orient="records")
             except Exception:
-                # Graceful fallback when processed_notes table is not created yet.
-                stats = loader.sql_query(
-                    """
-                    SELECT
-                      cn.medical_specialty,
-                      COUNT(cn.note_id) AS total_notes,
-                      0 AS processed_notes,
-                      0.0 AS avg_phi_per_note,
-                      0 AS total_phi_found,
-                      0.0 AS pct_processed
-                    FROM clinical_notes cn
-                    GROUP BY cn.medical_specialty
-                    ORDER BY total_notes DESC
-                    """
-                ).to_dict(orient="records")
-            return jsonify({
-              "report_type": "Study Status Summary",
-              "generated_at": __import__("datetime").datetime.utcnow().isoformat(),
-              "compliance": "ICH E6 (R2) GCP",
-              "specialties": stats,
-            }), 200
+                try:
+                    # Graceful fallback when processed_notes is not created yet.
+                    stats = loader.sql_query(
+                        """
+                        SELECT
+                          cn.medical_specialty,
+                          COUNT(cn.note_id) AS total_notes,
+                          0 AS processed_notes,
+                          0.0 AS avg_phi_per_note,
+                          0 AS total_phi_found,
+                          0.0 AS pct_processed
+                        FROM clinical_notes cn
+                        GROUP BY cn.medical_specialty
+                        ORDER BY total_notes DESC
+                        """
+                    ).to_dict(orient="records")
+                except Exception:
+                    # If clinical_notes is also unavailable, return empty summary.
+                    stats = []
+            return {
+                "report_type": "Study Status Summary",
+                "generated_at": __import__("datetime").datetime.utcnow().isoformat(),
+                "compliance": "ICH E6 (R2) GCP",
+                "warning": "No source tables found. Run run_phase1.py (and run_phase2.py for processed stats)." if not stats else None,
+                "specialties": stats,
+            }
         except Exception as e:
-            return jsonify({"error": str(e)}), 500
+            return {"error": str(e)}
+
+    @app.route("/api/report/summary")
+    def report_summary_api():
+        """Study-level aggregate status report by medical specialty (JSON API)."""
+        loader: DataLoader = app.config["LOADER"]
+        payload = _build_report_summary_payload(loader)
+        if "error" in payload:
+            return jsonify(payload), 500
+        return jsonify(payload), 200
+
+    @app.route("/report/summary")
+    def report_summary_page():
+        """Human-readable study-level summary report page."""
+        loader: DataLoader = app.config["LOADER"]
+        payload = _build_report_summary_payload(loader)
+
+        # Backward compatibility for callers that expect JSON on this path.
+        wants_json = request.args.get("format") == "json"
+        if wants_json:
+            if "error" in payload:
+                return jsonify(payload), 500
+            return jsonify(payload), 200
+
+        if "error" in payload:
+            return f"<h3>Error: {payload['error']}</h3>", 500
+
+        return render_template("report_summary.html", report=payload)
 
 
 # ── HTML Templates ────────────────────────────────────────────────────────────
