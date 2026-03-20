@@ -371,143 +371,141 @@ def _register_ui_routes(app: Flask) -> None:
     """
     return render_template("dashboard_new.html")
 
-    @app.route("/stats")
-    def stats_page():
-        """
-        Stats page — displays JSON data in a readable format.
-        """
-        return render_template("stats.html")
+  @app.route("/stats")
+  def stats_page():
+    """
+    Stats page — displays JSON data in a readable format.
+    """
+    return render_template("stats.html")
 
-    @app.route("/system-status")
-    def system_status():
-        """Visual system status page."""
-        return render_template("system_status.html")
+  @app.route("/system-status")
+  def system_status():
+    """Visual system status page."""
+    return render_template("system_status.html")
 
+  @app.route("/api-explorer")
+  def api_explorer():
+    """Interactive API explorer page."""
+    return render_template("api_explorer.html")
 
-    @app.route("/api-explorer")
-    def api_explorer():
-        """Interactive API explorer page."""
-        return render_template("api_explorer.html")
+  @app.route("/report/<int:note_id>")
+  def report(note_id: int):
+    """Before/after de-identification diff view for a single note."""
+    loader: DataLoader = app.config["LOADER"]
+    try:
+      try:
+        orig_df = loader.sql_query(
+          f"SELECT * FROM clinical_notes WHERE note_id = {note_id}"
+        )
+      except Exception:
+        return f"<h3>Note {note_id} not found</h3>", 404
 
+      if orig_df is None or orig_df.empty:
+        return f"<h3>Note {note_id} not found</h3>", 404
 
-    @app.route("/report/<int:note_id>")
-    def report(note_id: int):
-        """Before/after de-identification diff view for a single note."""
-        loader: DataLoader = app.config["LOADER"]
+      orig_text = orig_df.iloc[0].get("transcription", "")
+      specialty = orig_df.iloc[0].get("medical_specialty", "Unknown")
+      proc_text = "Not yet processed"
+      entity_count = 0
+
+      # processed_notes may not exist yet if phase 2 has not been run.
+      try:
+        proc_df = loader.sql_query(
+          f"SELECT * FROM processed_notes WHERE note_id = {note_id} "
+          f"ORDER BY id DESC LIMIT 1"
+        )
+        if not proc_df.empty:
+          proc_text = proc_df.iloc[0].get("masked_text", "Not yet processed")
+          entity_count = proc_df.iloc[0].get("entity_count", 0)
+      except Exception:
+        pass
+
+      return render_template(
+        "report.html",
+        note_id=note_id,
+        specialty=specialty,
+        orig_text=orig_text,
+        proc_text=proc_text,
+        entity_count=entity_count,
+      )
+    except Exception as e:
+      return f"<h3>Error: {e}</h3>", 500
+
+  def _build_report_summary_payload(loader: DataLoader) -> dict:
+    """Build summary payload shared by HTML and JSON report routes."""
+    try:
+      try:
+        stats = loader.sql_query(
+          """
+          SELECT
+            cn.medical_specialty,
+            COUNT(cn.note_id)                           AS total_notes,
+            COUNT(pn.id)                                AS processed_notes,
+            ROUND(AVG(pn.entity_count), 1)              AS avg_phi_per_note,
+            SUM(pn.entity_count)                        AS total_phi_found,
+            ROUND(COUNT(pn.id) * 100.0 / COUNT(cn.note_id), 1) AS pct_processed
+          FROM clinical_notes cn
+          LEFT JOIN processed_notes pn ON cn.note_id = pn.note_id
+          GROUP BY cn.medical_specialty
+          ORDER BY total_notes DESC
+          """
+        ).to_dict(orient="records")
+      except Exception:
         try:
-            try:
-                orig_df = loader.sql_query(
-                    f"SELECT * FROM clinical_notes WHERE note_id = {note_id}"
-                )
-            except Exception:
-                return f"<h3>Note {note_id} not found</h3>", 404
+          # Graceful fallback when processed_notes is not created yet.
+          stats = loader.sql_query(
+            """
+            SELECT
+              cn.medical_specialty,
+              COUNT(cn.note_id) AS total_notes,
+              0 AS processed_notes,
+              0.0 AS avg_phi_per_note,
+              0 AS total_phi_found,
+              0.0 AS pct_processed
+            FROM clinical_notes cn
+            GROUP BY cn.medical_specialty
+            ORDER BY total_notes DESC
+            """
+          ).to_dict(orient="records")
+        except Exception:
+          # If clinical_notes is also unavailable, return empty summary.
+          stats = []
+      return {
+        "report_type": "Study Status Summary",
+        "generated_at": __import__("datetime").datetime.utcnow().isoformat(),
+        "compliance": "ICH E6 (R2) GCP",
+        "warning": "No source tables found. Run run_phase1.py (and run_phase2.py for processed stats)." if not stats else None,
+        "specialties": stats,
+      }
+    except Exception as e:
+      return {"error": str(e)}
 
-            if orig_df is None or orig_df.empty:
-                return f"<h3>Note {note_id} not found</h3>", 404
+  @app.route("/api/report/summary")
+  def report_summary_api():
+    """Study-level aggregate status report by medical specialty (JSON API)."""
+    loader: DataLoader = app.config["LOADER"]
+    payload = _build_report_summary_payload(loader)
+    if "error" in payload:
+      return jsonify(payload), 500
+    return jsonify(payload), 200
 
-            orig_text = orig_df.iloc[0].get("transcription", "")
-            specialty = orig_df.iloc[0].get("medical_specialty", "Unknown")
-            proc_text = "Not yet processed"
-            entity_count = 0
+  @app.route("/report/summary")
+  def report_summary_page():
+    """Human-readable study-level summary report page."""
+    loader: DataLoader = app.config["LOADER"]
+    payload = _build_report_summary_payload(loader)
 
-            # processed_notes may not exist yet if phase 2 has not been run.
-            try:
-              proc_df = loader.sql_query(
-                f"SELECT * FROM processed_notes WHERE note_id = {note_id} "
-                f"ORDER BY id DESC LIMIT 1"
-              )
-              if not proc_df.empty:
-                proc_text = proc_df.iloc[0].get("masked_text", "Not yet processed")
-                entity_count = proc_df.iloc[0].get("entity_count", 0)
-            except Exception:
-              pass
+    # Backward compatibility for callers that expect JSON on this path.
+    wants_json = request.args.get("format") == "json"
+    if wants_json:
+      if "error" in payload:
+        return jsonify(payload), 500
+      return jsonify(payload), 200
 
-            return render_template(
-              "report.html",
-                note_id=note_id,
-                specialty=specialty,
-                orig_text=orig_text,
-                proc_text=proc_text,
-                entity_count=entity_count,
-            )
-        except Exception as e:
-            return f"<h3>Error: {e}</h3>", 500
+    if "error" in payload:
+      return f"<h3>Error: {payload['error']}</h3>", 500
 
-    def _build_report_summary_payload(loader: DataLoader) -> dict:
-        """Build summary payload shared by HTML and JSON report routes."""
-        try:
-            try:
-                stats = loader.sql_query(
-                    """
-                    SELECT
-                      cn.medical_specialty,
-                      COUNT(cn.note_id)                           AS total_notes,
-                      COUNT(pn.id)                                AS processed_notes,
-                      ROUND(AVG(pn.entity_count), 1)              AS avg_phi_per_note,
-                      SUM(pn.entity_count)                        AS total_phi_found,
-                      ROUND(COUNT(pn.id) * 100.0 / COUNT(cn.note_id), 1) AS pct_processed
-                    FROM clinical_notes cn
-                    LEFT JOIN processed_notes pn ON cn.note_id = pn.note_id
-                    GROUP BY cn.medical_specialty
-                    ORDER BY total_notes DESC
-                    """
-                ).to_dict(orient="records")
-            except Exception:
-                try:
-                    # Graceful fallback when processed_notes is not created yet.
-                    stats = loader.sql_query(
-                        """
-                        SELECT
-                          cn.medical_specialty,
-                          COUNT(cn.note_id) AS total_notes,
-                          0 AS processed_notes,
-                          0.0 AS avg_phi_per_note,
-                          0 AS total_phi_found,
-                          0.0 AS pct_processed
-                        FROM clinical_notes cn
-                        GROUP BY cn.medical_specialty
-                        ORDER BY total_notes DESC
-                        """
-                    ).to_dict(orient="records")
-                except Exception:
-                    # If clinical_notes is also unavailable, return empty summary.
-                    stats = []
-            return {
-                "report_type": "Study Status Summary",
-                "generated_at": __import__("datetime").datetime.utcnow().isoformat(),
-                "compliance": "ICH E6 (R2) GCP",
-                "warning": "No source tables found. Run run_phase1.py (and run_phase2.py for processed stats)." if not stats else None,
-                "specialties": stats,
-            }
-        except Exception as e:
-            return {"error": str(e)}
-
-    @app.route("/api/report/summary")
-    def report_summary_api():
-        """Study-level aggregate status report by medical specialty (JSON API)."""
-        loader: DataLoader = app.config["LOADER"]
-        payload = _build_report_summary_payload(loader)
-        if "error" in payload:
-            return jsonify(payload), 500
-        return jsonify(payload), 200
-
-    @app.route("/report/summary")
-    def report_summary_page():
-        """Human-readable study-level summary report page."""
-        loader: DataLoader = app.config["LOADER"]
-        payload = _build_report_summary_payload(loader)
-
-        # Backward compatibility for callers that expect JSON on this path.
-        wants_json = request.args.get("format") == "json"
-        if wants_json:
-            if "error" in payload:
-                return jsonify(payload), 500
-            return jsonify(payload), 200
-
-        if "error" in payload:
-            return f"<h3>Error: {payload['error']}</h3>", 500
-
-        return render_template("report_summary.html", report=payload)
+    return render_template("report_summary.html", report=payload)
 
 
 # ── HTML Templates ────────────────────────────────────────────────────────────
