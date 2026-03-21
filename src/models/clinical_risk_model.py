@@ -305,7 +305,11 @@ class ClinicalRiskModel:
         y_proba     = self._model.predict_proba(X_test)[:, 1]
         report      = classification_report(y_test, y_pred,
                                             output_dict=True, zero_division=0)
-        roc_auc     = round(roc_auc_score(y_test, y_proba), 4)
+        try:
+            roc_auc = round(roc_auc_score(y_test, y_proba), 4)
+        except ValueError:
+            # Only one class in test split (e.g. tiny test fixtures) — undefined
+            roc_auc = 0.5
         f1_macro    = round(f1_score(y_test, y_pred, average="macro",
                                      zero_division=0), 4)
         precision   = round(report.get("1", {}).get("precision", 0.0), 4)
