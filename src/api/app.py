@@ -1,24 +1,24 @@
-"""
+﻿"""
 app.py
-──────
+â”€â”€â”€â”€â”€â”€
 Flask application factory for ClinicalNER.
 
 Routes
 ------
-  POST /api/deidentify          — de-identify a clinical note (core API)
-  GET  /api/note/<id>           — fetch a processed note by ID
-  GET  /api/stats               — corpus + pipeline statistics (JSON)
-  GET  /dashboard               — live EDA + audit dashboard (HTML)
-  GET  /report/<note_id>        — before/after diff view (HTML)
-  GET  /health                  — liveness probe (for Docker/cloud)
+  POST /api/deidentify          â€” de-identify a clinical note (core API)
+  GET  /api/note/<id>           â€” fetch a processed note by ID
+  GET  /api/stats               â€” corpus + pipeline statistics (JSON)
+  GET  /dashboard               â€” live EDA + audit dashboard (HTML)
+  GET  /report/<note_id>        â€” before/after diff view (HTML)
+  GET  /health                  â€” liveness probe (for Docker/cloud)
 
 Design decisions:
-  - Application factory pattern (create_app()) — standard Flask practice,
+  - Application factory pattern (create_app()) â€” standard Flask practice,
     makes the app testable and importable without side effects.
   - All pipeline objects initialised ONCE at app startup via app.config,
-    not on every request — avoids reloading spaCy model per call.
+    not on every request â€” avoids reloading spaCy model per call.
   - Errors return JSON with a consistent shape:
-    {"error": "...", "status": 400} — matches what a frontend expects.
+    {"error": "...", "status": 400} â€” matches what a frontend expects.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
 
 
-# ── Application factory ───────────────────────────────────────────────────────
+# â”€â”€ Application factory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def create_app(db_path: str | None = None) -> Flask:
     """
@@ -72,9 +72,9 @@ def create_app(db_path: str | None = None) -> Flask:
     app = Flask(__name__, template_folder=str(template_dir), static_folder="static")
     CORS(app)   # allow cross-origin requests (needed when frontend is separate)
 
-    # ── Initialise pipeline components once at startup ────────────────────────
+    # â”€â”€ Initialise pipeline components once at startup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Key decision: store in app.config so all request handlers share
-    # the same instances — avoids reloading the spaCy model on every request.
+    # the same instances â€” avoids reloading the spaCy model on every request.
     app.config["DB_PATH"]  = resolved_db_path
     app.config["LOADER"]   = DataLoader(db_path=resolved_db_path)
     app.config["PIPELINE"] = NERPipeline(db_path=resolved_db_path, use_spacy=True)
@@ -113,14 +113,14 @@ def create_app(db_path: str | None = None) -> Flask:
 
     logger.info("ClinicalNER Flask app initialised | db=%s", resolved_db_path)
 
-    # ── Register routes ───────────────────────────────────────────────────────
+    # â”€â”€ Register routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     _register_api_routes(app)
     _register_ui_routes(app)
 
     return app
 
 
-# ── API routes ────────────────────────────────────────────────────────────────
+# â”€â”€ API routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _register_api_routes(app: Flask) -> None:
 
@@ -310,420 +310,420 @@ def _register_api_routes(app: Flask) -> None:
         if app.config.get("BACKFILL_ACTIVE_JOB_ID") == job_id:
           app.config["BACKFILL_ACTIVE_JOB_ID"] = None
 
-    @app.route("/health")
-    def health():
-        """Liveness probe — Docker HEALTHCHECK and cloud load balancers call this."""
-        return jsonify({"status": "ok", "service": "ClinicalNER"})
+  @app.route("/health")
+  def health():
+      """Liveness probe â€” Docker HEALTHCHECK and cloud load balancers call this."""
+      return jsonify({"status": "ok", "service": "ClinicalNER"})
 
-    @app.route("/api/deidentify", methods=["POST"])
-    def deidentify():
-        """
-        De-identify a clinical note.
+  @app.route("/api/deidentify", methods=["POST"])
+  def deidentify():
+      """
+      De-identify a clinical note.
 
-        Request body (JSON):
-          {
-            "text":     "Patient James Smith...",   ← required
-            "note_id":  42,                          ← optional
-            "save":     true                         ← optional, default true
-          }
-
-        Response (JSON):
-          {
-            "note_id":       42,
-            "original_text": "...",
-            "masked_text":   "...",
-            "entities":      [...],
-            "entity_count":  5,
-            "entity_types":  {"DATE": 2, "PHONE": 1, ...},
-            "is_valid":      true,
-            "changes":       [...]
-          }
-        """
-        pipeline: NERPipeline = app.config["PIPELINE"]
-        cleaner:  DataCleaner = app.config["CLEANER"]
-        audit:    AuditLogger = app.config["AUDIT"]
-
-        ok, rate_error = _check_rate_limit("deidentify", limit=120, window_sec=60)
-        if not ok:
-          return jsonify(rate_error[0]), rate_error[1]
-
-        # ── Input validation ──────────────────────────────────────────────────
-        if not request.is_json:
-            return jsonify({"error": "Request must be JSON", "status": 400}), 400
-
-        data    = request.get_json()
-        text    = data.get("text", "").strip()
-        note_id = data.get("note_id")
-        save    = data.get("save", True)
-
-        if not text:
-            return jsonify({"error": "Field 'text' is required and cannot be empty", "status": 400}), 400
-
-        if len(text) > 50_000:
-            return jsonify({"error": "Text exceeds 50,000 character limit", "status": 413}), 413
-
-        # ── Log API request ───────────────────────────────────────────────────
-        audit.log(
-            EventType.API_REQUEST,
-            description=f"POST /api/deidentify | note_id={note_id} | chars={len(text)}",
-            note_id=note_id,
-        )
-
-        # ── Pre-NER clean ─────────────────────────────────────────────────────
-        pre_result = cleaner.clean_pre_ner(text)
-
-        # ── NER + masking ─────────────────────────────────────────────────────
-        ner_result = pipeline.process_note(
-            pre_result.cleaned_text,
-            note_id=note_id,
-            save_to_db=save,
-        )
-
-        # ── Post-NER clean + validation ───────────────────────────────────────
-        post_result = cleaner.clean_post_ner(ner_result["masked_text"])
-
-        # ── Log NER result ────────────────────────────────────────────────────
-        audit.log_ner_result(ner_result)
-        audit.log_cleaning_result(post_result, note_id=note_id)
-
-        # ── Build response ────────────────────────────────────────────────────
-        response = {
-            **ner_result,
-            "masked_text":    post_result.cleaned_text,
-            "is_valid":       post_result.is_valid,
-            "changes":        pre_result.changes + post_result.changes,
-            "avg_confidence": ner_result.get("avg_confidence", 0.0),
+      Request body (JSON):
+        {
+          "text":     "Patient James Smith...",   â† required
+          "note_id":  42,                          â† optional
+          "save":     true                         â† optional, default true
         }
 
-        audit.log(
-            EventType.API_RESPONSE,
-            description=f"POST /api/deidentify | {ner_result['entity_count']} entities",
-            note_id=note_id,
-        )
+      Response (JSON):
+        {
+          "note_id":       42,
+          "original_text": "...",
+          "masked_text":   "...",
+          "entities":      [...],
+          "entity_count":  5,
+          "entity_types":  {"DATE": 2, "PHONE": 1, ...},
+          "is_valid":      true,
+          "changes":       [...]
+        }
+      """
+      pipeline: NERPipeline = app.config["PIPELINE"]
+      cleaner:  DataCleaner = app.config["CLEANER"]
+      audit:    AuditLogger = app.config["AUDIT"]
 
-        return jsonify(response), 200
+      ok, rate_error = _check_rate_limit("deidentify", limit=120, window_sec=60)
+      if not ok:
+        return jsonify(rate_error[0]), rate_error[1]
 
-    @app.route("/api/note/<int:note_id>")
-    def get_note(note_id: int):
-        """Fetch a processed note by note_id."""
-        loader: DataLoader = app.config["LOADER"]
-        try:
-            df = loader.sql_query(
-                f"SELECT * FROM processed_notes WHERE note_id = {note_id} "
-                f"ORDER BY id DESC LIMIT 1"
-            )
-            if df.empty:
-                return jsonify({"error": f"Note {note_id} not found", "status": 404}), 404
-            return jsonify(df.iloc[0].to_dict()), 200
-        except Exception as e:
-            logger.error("get_note error: %s", e)
-            return jsonify({"error": str(e), "status": 500}), 500
+      # â”€â”€ Input validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      if not request.is_json:
+          return jsonify({"error": "Request must be JSON", "status": 400}), 400
 
-    @app.route("/api/stats")
-    def stats():
-        """
-        Return corpus + pipeline statistics as JSON.
-        Consumed by the /dashboard template to render charts.
-        """
-        loader: DataLoader = app.config["LOADER"]
-        audit:  AuditLogger = app.config["AUDIT"]
+      data    = request.get_json()
+      text    = data.get("text", "").strip()
+      note_id = data.get("note_id")
+      save    = data.get("save", True)
 
-        try:
-            # Note counts — return 0 gracefully if tables don't exist yet
-            try:
-                note_count = loader.sql_query(
-                    "SELECT COUNT(*) as n FROM clinical_notes"
-                ).iloc[0]["n"]
-            except Exception:
-                note_count = 0
+      if not text:
+          return jsonify({"error": "Field 'text' is required and cannot be empty", "status": 400}), 400
 
-            try:
-                processed_count = loader.sql_query(
-                    "SELECT COUNT(*) as n FROM processed_notes"
-                ).iloc[0]["n"]
-            except Exception:
-                processed_count = 0
+      if len(text) > 50_000:
+          return jsonify({"error": "Text exceeds 50,000 character limit", "status": 413}), 413
 
-            # Entity breakdown
-            entity_totals: dict = {}
-            try:
-                entity_sql = loader.sql_query(
-                    "SELECT entity_types_json FROM processed_notes "
-                    "WHERE entity_types_json IS NOT NULL"
-                )
-                for row in entity_sql["entity_types_json"]:
-                    try:
-                        for k, v in json.loads(row).items():
-                            entity_totals[k] = entity_totals.get(k, 0) + v
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+      # â”€â”€ Log API request â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      audit.log(
+          EventType.API_REQUEST,
+          description=f"POST /api/deidentify | note_id={note_id} | chars={len(text)}",
+          note_id=note_id,
+      )
 
-            # Specialty breakdown
-            try:
-                specialty = loader.sql_query(
-                    "SELECT medical_specialty, COUNT(*) as count "
-                    "FROM clinical_notes GROUP BY medical_specialty "
-                    "ORDER BY count DESC LIMIT 10"
-                ).to_dict(orient="records")
-            except Exception:
-                specialty = []
+      # â”€â”€ Pre-NER clean â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      pre_result = cleaner.clean_pre_ner(text)
 
-            # Avg entities per specialty
-            try:
-                phi_by_spec = loader.sql_query(
-                    "SELECT cn.medical_specialty, "
-                    "ROUND(AVG(pn.entity_count), 1) as avg_phi "
-                    "FROM clinical_notes cn "
-                    "JOIN processed_notes pn ON cn.note_id = pn.note_id "
-                    "GROUP BY cn.medical_specialty ORDER BY avg_phi DESC LIMIT 8"
-                ).to_dict(orient="records")
-            except Exception:
-                phi_by_spec = []
+      # â”€â”€ NER + masking â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      ner_result = pipeline.process_note(
+          pre_result.cleaned_text,
+          note_id=note_id,
+          save_to_db=save,
+      )
 
-            # Audit summary
-            audit_summary = audit.get_summary().to_dict(orient="records")
+      # â”€â”€ Post-NER clean + validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      post_result = cleaner.clean_post_ner(ner_result["masked_text"])
 
-            return jsonify({
-                "note_count":       int(note_count),
-                "processed_count":  int(processed_count),
-                "entity_totals":    entity_totals,
-                "specialty":        specialty,
-                "phi_by_specialty": phi_by_spec,
-                "audit_summary":    audit_summary,
-                "total_audit_events": audit.total_events(),
-            }), 200
+      # â”€â”€ Log NER result â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      audit.log_ner_result(ner_result)
+      audit.log_cleaning_result(post_result, note_id=note_id)
 
-        except Exception as e:
-            logger.error("stats error: %s", e)
-            return jsonify({"error": str(e), "status": 500}), 500
+      # â”€â”€ Build response â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      response = {
+          **ner_result,
+          "masked_text":    post_result.cleaned_text,
+          "is_valid":       post_result.is_valid,
+          "changes":        pre_result.changes + post_result.changes,
+          "avg_confidence": ner_result.get("avg_confidence", 0.0),
+      }
 
-    @app.route("/api/admin/backfill-processed", methods=["POST"])
-    def admin_backfill_processed():
-        """
-        Admin-only one-shot backfill for processed_notes.
+      audit.log(
+          EventType.API_RESPONSE,
+          description=f"POST /api/deidentify | {ner_result['entity_count']} entities",
+          note_id=note_id,
+      )
 
-        Auth:
-          Header X-Admin-Token must match env ADMIN_BACKFILL_TOKEN.
+      return jsonify(response), 200
 
-        Request body (optional JSON):
-          {
-            "clear_existing": true,   # default true
-            "limit": 500              # optional positive integer
-          }
-        """
-        ok, _, auth_error = _auth_admin_token()
-        if not ok:
+  @app.route("/api/note/<int:note_id>")
+  def get_note(note_id: int):
+      """Fetch a processed note by note_id."""
+      loader: DataLoader = app.config["LOADER"]
+      try:
+          df = loader.sql_query(
+              f"SELECT * FROM processed_notes WHERE note_id = {note_id} "
+              f"ORDER BY id DESC LIMIT 1"
+          )
+          if df.empty:
+              return jsonify({"error": f"Note {note_id} not found", "status": 404}), 404
+          return jsonify(df.iloc[0].to_dict()), 200
+      except Exception as e:
+          logger.error("get_note error: %s", e)
+          return jsonify({"error": str(e), "status": 500}), 500
+
+  @app.route("/api/stats")
+  def stats():
+      """
+      Return corpus + pipeline statistics as JSON.
+      Consumed by the /dashboard template to render charts.
+      """
+      loader: DataLoader = app.config["LOADER"]
+      audit:  AuditLogger = app.config["AUDIT"]
+
+      try:
+          # Note counts â€” return 0 gracefully if tables don't exist yet
+          try:
+              note_count = loader.sql_query(
+                  "SELECT COUNT(*) as n FROM clinical_notes"
+              ).iloc[0]["n"]
+          except Exception:
+              note_count = 0
+
+          try:
+              processed_count = loader.sql_query(
+                  "SELECT COUNT(*) as n FROM processed_notes"
+              ).iloc[0]["n"]
+          except Exception:
+              processed_count = 0
+
+          # Entity breakdown
+          entity_totals: dict = {}
+          try:
+              entity_sql = loader.sql_query(
+                  "SELECT entity_types_json FROM processed_notes "
+                  "WHERE entity_types_json IS NOT NULL"
+              )
+              for row in entity_sql["entity_types_json"]:
+                  try:
+                      for k, v in json.loads(row).items():
+                          entity_totals[k] = entity_totals.get(k, 0) + v
+                  except Exception:
+                      pass
+          except Exception:
+              pass
+
+          # Specialty breakdown
+          try:
+              specialty = loader.sql_query(
+                  "SELECT medical_specialty, COUNT(*) as count "
+                  "FROM clinical_notes GROUP BY medical_specialty "
+                  "ORDER BY count DESC LIMIT 10"
+              ).to_dict(orient="records")
+          except Exception:
+              specialty = []
+
+          # Avg entities per specialty
+          try:
+              phi_by_spec = loader.sql_query(
+                  "SELECT cn.medical_specialty, "
+                  "ROUND(AVG(pn.entity_count), 1) as avg_phi "
+                  "FROM clinical_notes cn "
+                  "JOIN processed_notes pn ON cn.note_id = pn.note_id "
+                  "GROUP BY cn.medical_specialty ORDER BY avg_phi DESC LIMIT 8"
+              ).to_dict(orient="records")
+          except Exception:
+              phi_by_spec = []
+
+          # Audit summary
+          audit_summary = audit.get_summary().to_dict(orient="records")
+
+          return jsonify({
+              "note_count":       int(note_count),
+              "processed_count":  int(processed_count),
+              "entity_totals":    entity_totals,
+              "specialty":        specialty,
+              "phi_by_specialty": phi_by_spec,
+              "audit_summary":    audit_summary,
+              "total_audit_events": audit.total_events(),
+          }), 200
+
+      except Exception as e:
+          logger.error("stats error: %s", e)
+          return jsonify({"error": str(e), "status": 500}), 500
+
+  @app.route("/api/admin/backfill-processed", methods=["POST"])
+  def admin_backfill_processed():
+      """
+      Admin-only one-shot backfill for processed_notes.
+
+      Auth:
+        Header X-Admin-Token must match env ADMIN_BACKFILL_TOKEN.
+
+      Request body (optional JSON):
+        {
+          "clear_existing": true,   # default true
+          "limit": 500              # optional positive integer
+        }
+      """
+      ok, _, auth_error = _auth_admin_token()
+      if not ok:
+        return jsonify(auth_error[0]), auth_error[1]
+
+      payload, payload_error = _get_backfill_payload()
+      if payload_error:
+        return jsonify(payload_error[0]), payload_error[1]
+
+      jobs: dict = app.config["BACKFILL_JOBS"]
+      lock: threading.Lock = app.config["BACKFILL_LOCK"]
+
+      with lock:
+        active_job_id = app.config.get("BACKFILL_ACTIVE_JOB_ID")
+        if active_job_id and jobs.get(active_job_id, {}).get("status") in {"queued", "running"}:
+          return jsonify({
+            "error": "A backfill job is already running",
+            "status": 409,
+            "job": jobs[active_job_id],
+          }), 409
+
+        job_id = uuid.uuid4().hex
+        jobs[job_id] = {
+          "job_id": job_id,
+          "status": "queued",
+          "created_at": _utc_now(),
+          "started_at": None,
+          "finished_at": None,
+          "processed_notes": 0,
+          "total_notes": 0,
+          "notes_with_phi": 0,
+          "total_entities": 0,
+          "cleared_previous_rows": 0,
+          "progress_pct": 0.0,
+          "clear_existing": payload["clear_existing"],
+          "limit": payload["limit"],
+          "error": None,
+        }
+        app.config["BACKFILL_ACTIVE_JOB_ID"] = job_id
+
+      worker = threading.Thread(
+        target=_run_backfill_job,
+        args=(job_id, payload["clear_existing"], payload["limit"]),
+        daemon=True,
+        name=f"backfill-{job_id[:8]}",
+      )
+      worker.start()
+
+      return jsonify({
+        "status": 202,
+        "message": "Backfill job queued",
+        "job": jobs[job_id],
+      }), 202
+
+  @app.route("/api/admin/backfill-status/<job_id>", methods=["GET"])
+  def admin_backfill_status(job_id: str):
+      """Return status for a previously created admin backfill job."""
+      ok, rate_error = _check_rate_limit("admin_backfill_status", limit=240, window_sec=60)
+      if not ok:
+          return jsonify(rate_error[0]), rate_error[1]
+
+      ok, _, auth_error = _auth_admin_token()
+      if not ok:
           return jsonify(auth_error[0]), auth_error[1]
 
-        payload, payload_error = _get_backfill_payload()
-        if payload_error:
-          return jsonify(payload_error[0]), payload_error[1]
+      jobs: dict = app.config["BACKFILL_JOBS"]
+      job = jobs.get(job_id)
+      if not job:
+          return jsonify({"error": "Backfill job not found", "status": 404}), 404
+      return jsonify({"status": 200, "job": job}), 200
 
-        jobs: dict = app.config["BACKFILL_JOBS"]
-        lock: threading.Lock = app.config["BACKFILL_LOCK"]
+  @app.route("/api/admin/backfill-status", methods=["GET"])
+  def admin_backfill_status_latest():
+      """Return latest backfill job status if available."""
+      ok, rate_error = _check_rate_limit("admin_backfill_status", limit=240, window_sec=60)
+      if not ok:
+          return jsonify(rate_error[0]), rate_error[1]
 
-        with lock:
-          active_job_id = app.config.get("BACKFILL_ACTIVE_JOB_ID")
-          if active_job_id and jobs.get(active_job_id, {}).get("status") in {"queued", "running"}:
-            return jsonify({
-              "error": "A backfill job is already running",
-              "status": 409,
-              "job": jobs[active_job_id],
-            }), 409
+      ok, _, auth_error = _auth_admin_token()
+      if not ok:
+          return jsonify(auth_error[0]), auth_error[1]
 
-          job_id = uuid.uuid4().hex
-          jobs[job_id] = {
-            "job_id": job_id,
-            "status": "queued",
-            "created_at": _utc_now(),
-            "started_at": None,
-            "finished_at": None,
-            "processed_notes": 0,
-            "total_notes": 0,
-            "notes_with_phi": 0,
-            "total_entities": 0,
-            "cleared_previous_rows": 0,
-            "progress_pct": 0.0,
-            "clear_existing": payload["clear_existing"],
-            "limit": payload["limit"],
-            "error": None,
-          }
-          app.config["BACKFILL_ACTIVE_JOB_ID"] = job_id
+      jobs: dict = app.config["BACKFILL_JOBS"]
+      if not jobs:
+          return jsonify({"status": 200, "job": None}), 200
 
-        worker = threading.Thread(
-          target=_run_backfill_job,
-          args=(job_id, payload["clear_existing"], payload["limit"]),
-          daemon=True,
-          name=f"backfill-{job_id[:8]}",
-        )
-        worker.start()
+      latest = max(jobs.values(), key=lambda j: j.get("created_at") or "")
+      return jsonify({"status": 200, "job": latest}), 200
 
-        return jsonify({
-          "status": 202,
-          "message": "Backfill job queued",
-          "job": jobs[job_id],
-        }), 202
+  @app.route("/api/predict-readmission", methods=["POST"])
+  def predict_readmission():
+      predictor: ReadmissionPredictor = app.config["PREDICTOR"]
+      loader:    DataLoader           = app.config["LOADER"]
 
-    @app.route("/api/admin/backfill-status/<job_id>", methods=["GET"])
-    def admin_backfill_status(job_id: str):
-        """Return status for a previously created admin backfill job."""
-        ok, rate_error = _check_rate_limit("admin_backfill_status", limit=240, window_sec=60)
-        if not ok:
-            return jsonify(rate_error[0]), rate_error[1]
+      ok, rate_error = _check_rate_limit("predict_readmission", limit=30, window_sec=60)
+      if not ok:
+          return jsonify(rate_error[0]), rate_error[1]
 
-        ok, _, auth_error = _auth_admin_token()
-        if not ok:
-            return jsonify(auth_error[0]), auth_error[1]
+      if not request.is_json:
+          return jsonify({"error": "Request must be JSON", "status": 400}), 400
 
-        jobs: dict = app.config["BACKFILL_JOBS"]
-        job = jobs.get(job_id)
-        if not job:
-            return jsonify({"error": "Backfill job not found", "status": 404}), 404
-        return jsonify({"status": 200, "job": job}), 200
+      data = request.get_json()
 
-    @app.route("/api/admin/backfill-status", methods=["GET"])
-    def admin_backfill_status_latest():
-        """Return latest backfill job status if available."""
-        ok, rate_error = _check_rate_limit("admin_backfill_status", limit=240, window_sec=60)
-        if not ok:
-            return jsonify(rate_error[0]), rate_error[1]
+      if not predictor.is_fitted:
+          try:
+              import json as _json
+              df = loader.sql_query(
+                  "SELECT note_id, masked_text, entity_types_json, avg_confidence "
+                  "FROM processed_notes WHERE entity_types_json IS NOT NULL LIMIT 2000"
+              )
+              if len(df) < 50:
+                  return jsonify({"error": "Need at least 50 processed notes. Run run_phase2.py first.", "status": 400}), 400
 
-        ok, _, auth_error = _auth_admin_token()
-        if not ok:
-            return jsonify(auth_error[0]), auth_error[1]
+              corpus = []
+              for _, row in df.iterrows():
+                  try:
+                      et = _json.loads(row.get("entity_types_json") or "{}")
+                      entities = [{"label": k} for k, v in et.items() for _ in range(int(v))]
+                  except Exception:
+                      entities = []
+                  corpus.append({
+                      "id":       int(row["note_id"]),
+                      "text":     str(row.get("masked_text") or ""),
+                      "entities": entities,
+                  })
+              predictor.fit(corpus)
+          except Exception as e:
+              return jsonify({"error": f"Model training failed: {e}", "status": 500}), 500
 
-        jobs: dict = app.config["BACKFILL_JOBS"]
-        if not jobs:
-            return jsonify({"status": 200, "job": None}), 200
-
-        latest = max(jobs.values(), key=lambda j: j.get("created_at") or "")
-        return jsonify({"status": 200, "job": latest}), 200
-
-    @app.route("/api/predict-readmission", methods=["POST"])
-    def predict_readmission():
-        predictor: ReadmissionPredictor = app.config["PREDICTOR"]
-        loader:    DataLoader           = app.config["LOADER"]
-
-        ok, rate_error = _check_rate_limit("predict_readmission", limit=30, window_sec=60)
-        if not ok:
-            return jsonify(rate_error[0]), rate_error[1]
-
-        if not request.is_json:
-            return jsonify({"error": "Request must be JSON", "status": 400}), 400
-
-        data = request.get_json()
-
-        if not predictor.is_fitted:
-            try:
-                import json as _json
-                df = loader.sql_query(
-                    "SELECT note_id, masked_text, entity_types_json, avg_confidence "
-                    "FROM processed_notes WHERE entity_types_json IS NOT NULL LIMIT 2000"
-                )
-                if len(df) < 50:
-                    return jsonify({"error": "Need at least 50 processed notes. Run run_phase2.py first.", "status": 400}), 400
-
-                corpus = []
-                for _, row in df.iterrows():
-                    try:
-                        et = _json.loads(row.get("entity_types_json") or "{}")
-                        entities = [{"label": k} for k, v in et.items() for _ in range(int(v))]
-                    except Exception:
-                        entities = []
-                    corpus.append({
-                        "id":       int(row["note_id"]),
-                        "text":     str(row.get("masked_text") or ""),
-                        "entities": entities,
-                    })
-                predictor.fit(corpus)
-            except Exception as e:
-                return jsonify({"error": f"Model training failed: {e}", "status": 500}), 500
-
-        try:
-            if "notes" in data:
-                results = predictor.predict_batch(data["notes"])
-                return jsonify({
-                    "results":     [r.to_dict() for r in results],
-                    "model_stats": predictor.model_stats(),
-                    "count":       len(results),
-                }), 200
-            else:
-                result = predictor.predict_one(data)
-                return jsonify({**result.to_dict(), "model_stats": predictor.model_stats()}), 200
-        except Exception as e:
-            return jsonify({"error": str(e), "status": 500}), 500
+      try:
+          if "notes" in data:
+              results = predictor.predict_batch(data["notes"])
+              return jsonify({
+                  "results":     [r.to_dict() for r in results],
+                  "model_stats": predictor.model_stats(),
+                  "count":       len(results),
+              }), 200
+          else:
+              result = predictor.predict_one(data)
+              return jsonify({**result.to_dict(), "model_stats": predictor.model_stats()}), 200
+      except Exception as e:
+          return jsonify({"error": str(e), "status": 500}), 500
 
 
-    @app.route("/api/anomaly-scan", methods=["POST"])
-    def anomaly_scan():
-        """Fit IsolationForest on submitted notes, return anomaly scores."""
-        detector: AnomalyDetector = app.config["DETECTOR"]
-        audit:    AuditLogger     = app.config["AUDIT"]
+  @app.route("/api/anomaly-scan", methods=["POST"])
+  def anomaly_scan():
+      """Fit IsolationForest on submitted notes, return anomaly scores."""
+      detector: AnomalyDetector = app.config["DETECTOR"]
+      audit:    AuditLogger     = app.config["AUDIT"]
 
-        ok, rate_error = _check_rate_limit("anomaly_scan", limit=20, window_sec=60)
-        if not ok:
-            return jsonify(rate_error[0]), rate_error[1]
+      ok, rate_error = _check_rate_limit("anomaly_scan", limit=20, window_sec=60)
+      if not ok:
+          return jsonify(rate_error[0]), rate_error[1]
 
-        if not request.is_json:
-            return jsonify({"error": "Request must be JSON", "status": 400}), 400
+      if not request.is_json:
+          return jsonify({"error": "Request must be JSON", "status": 400}), 400
 
-        payload = request.get_json(silent=True) or {}
-        notes_in = payload.get("notes", [])
+      payload = request.get_json(silent=True) or {}
+      notes_in = payload.get("notes", [])
 
-        if not isinstance(notes_in, list):
-            return jsonify({"error": "Field 'notes' must be a JSON array", "status": 400}), 400
+      if not isinstance(notes_in, list):
+          return jsonify({"error": "Field 'notes' must be a JSON array", "status": 400}), 400
 
-        # Accept both list[str] and list[dict] to make the API Explorer
-        # and external clients easier to use.
-        notes: list[dict] = []
-        for idx, item in enumerate(notes_in):
-            if isinstance(item, str):
-                notes.append({"id": idx + 1, "text": item, "entities": []})
-                continue
+      # Accept both list[str] and list[dict] to make the API Explorer
+      # and external clients easier to use.
+      notes: list[dict] = []
+      for idx, item in enumerate(notes_in):
+          if isinstance(item, str):
+              notes.append({"id": idx + 1, "text": item, "entities": []})
+              continue
 
-            if isinstance(item, dict):
-                note_text = (
-                    item.get("text")
-                    or item.get("transcription")
-                    or item.get("masked_text")
-                    or ""
-                )
-                entities = item.get("entities") if isinstance(item.get("entities"), list) else []
-                notes.append({
-                    "id": item.get("id", idx + 1),
-                    "text": str(note_text),
-                    "entities": entities,
-                })
-                continue
+          if isinstance(item, dict):
+              note_text = (
+                  item.get("text")
+                  or item.get("transcription")
+                  or item.get("masked_text")
+                  or ""
+              )
+              entities = item.get("entities") if isinstance(item.get("entities"), list) else []
+              notes.append({
+                  "id": item.get("id", idx + 1),
+                  "text": str(note_text),
+                  "entities": entities,
+              })
+              continue
 
-            return jsonify({
-                "error": "Each note must be either a string or an object",
-                "status": 400,
-            }), 400
+          return jsonify({
+              "error": "Each note must be either a string or an object",
+              "status": 400,
+          }), 400
 
-        if len(notes) < 10:
-            return jsonify({
-                "error": "Need at least 10 notes to fit the anomaly model",
-                "status": 400,
-            }), 400
+      if len(notes) < 10:
+          return jsonify({
+              "error": "Need at least 10 notes to fit the anomaly model",
+              "status": 400,
+          }), 400
 
-        try:
-            results = detector.fit_predict(notes)
-            summary = detector.summary(results)
-            audit.log(
-                EventType.PIPELINE_COMPLETE,
-                description=f"Anomaly scan: {summary['anomalies_found']} flagged / {summary['total_notes']}",
-                metadata=summary,
-            )
-            return jsonify({**summary, "results": [r.to_dict() for r in results]}), 200
-        except Exception as e:
-            logger.error("anomaly_scan error: %s", e)
-            return jsonify({"error": str(e), "status": 500}), 500
+      try:
+          results = detector.fit_predict(notes)
+          summary = detector.summary(results)
+          audit.log(
+              EventType.PIPELINE_COMPLETE,
+              description=f"Anomaly scan: {summary['anomalies_found']} flagged / {summary['total_notes']}",
+              metadata=summary,
+          )
+          return jsonify({**summary, "results": [r.to_dict() for r in results]}), 200
+      except Exception as e:
+          logger.error("anomaly_scan error: %s", e)
+          return jsonify({"error": str(e), "status": 500}), 500
 
 
-# ── UI routes ─────────────────────────────────────────────────────────────────
+# â”€â”€ UI routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _register_ui_routes(app: Flask) -> None:
 
@@ -735,7 +735,7 @@ def _register_ui_routes(app: Flask) -> None:
   @app.route("/dashboard")
   def dashboard():
     """
-    Live EDA dashboard — renders stats as interactive charts.
+    Live EDA dashboard â€” renders stats as interactive charts.
     Uses Chart.js loaded from CDN, data fetched from /api/stats.
     """
     return render_template("dashboard_new.html")
@@ -743,7 +743,7 @@ def _register_ui_routes(app: Flask) -> None:
   @app.route("/stats")
   def stats_page():
     """
-    Stats page — displays JSON data in a readable format.
+    Stats page â€” displays JSON data in a readable format.
     """
     return render_template("stats.html")
 
@@ -877,18 +877,18 @@ def _register_ui_routes(app: Flask) -> None:
     return render_template("report_summary.html", report=payload)
 
 
-# ── HTML Templates ────────────────────────────────────────────────────────────
-# Inline templates — no separate file needed for a portfolio project.
+# â”€â”€ HTML Templates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Inline templates â€” no separate file needed for a portfolio project.
 # In production these would be Jinja2 .html files in templates/.
 
-# ── HTML Templates ────────────────────────────────────────────────────────────
+# â”€â”€ HTML Templates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 DASHBOARD_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ClinicalNER · Intelligence Platform</title>
+<title>ClinicalNER Â· Intelligence Platform</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -925,7 +925,7 @@ body {
   overflow-x: hidden;
 }
 
-/* ── Animated grid background ── */
+/* â”€â”€ Animated grid background â”€â”€ */
 body::before {
   content: '';
   position: fixed;
@@ -950,10 +950,10 @@ body::after {
   z-index: 0;
 }
 
-/* ── Layout ── */
+/* â”€â”€ Layout â”€â”€ */
 .layout { display: flex; min-height: 100vh; position: relative; z-index: 1; }
 
-/* ── Sidebar ── */
+/* â”€â”€ Sidebar â”€â”€ */
 .sidebar {
   width: 240px;
   flex-shrink: 0;
@@ -1070,10 +1070,10 @@ body::after {
   animation: pulse-dot 2s ease-in-out infinite;
 }
 
-/* ── Main content ── */
+/* â”€â”€ Main content â”€â”€ */
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
-/* ── Topbar ── */
+/* â”€â”€ Topbar â”€â”€ */
 .topbar {
   display: flex;
   align-items: center;
@@ -1118,10 +1118,10 @@ body::after {
 .tag-teal { background: var(--teal-light); color: var(--teal); border: 1px solid rgba(15,118,110,0.2); }
 .tag-amber { background: var(--amber-light); color: var(--amber); border: 1px solid rgba(217,119,6,0.2); }
 
-/* ── Content ── */
+/* â”€â”€ Content â”€â”€ */
 .content { padding: 32px 36px; flex: 1; }
 
-/* ── Section header ── */
+/* â”€â”€ Section header â”€â”€ */
 .section-header {
   display: flex;
   align-items: center;
@@ -1144,7 +1144,7 @@ body::after {
   background: linear-gradient(90deg, var(--border), transparent);
 }
 
-/* ── Stat cards ── */
+/* â”€â”€ Stat cards â”€â”€ */
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1227,7 +1227,7 @@ body::after {
   filter: grayscale(100%);
 }
 
-/* ── Charts grid ── */
+/* â”€â”€ Charts grid â”€â”€ */
 .charts-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1282,7 +1282,7 @@ body::after {
 
 canvas { max-height: 240px; }
 
-/* ── Audit table ── */
+/* â”€â”€ Audit table â”€â”€ */
 .audit-card {
   background: var(--card-bg);
   border: 1px solid var(--border);
@@ -1338,7 +1338,7 @@ tbody tr:last-child td { border-bottom: none; }
 tbody tr { transition: background 0.15s; }
 tbody tr:hover td { background: var(--bg3); color: var(--txt); }
 
-/* ── Event badges ── */
+/* â”€â”€ Event badges â”€â”€ */
 .ev {
   display: inline-flex;
   align-items: center;
@@ -1358,7 +1358,7 @@ tbody tr:hover td { background: var(--bg3); color: var(--txt); }
 
 .ev-dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
 
-/* ── Count col ── */
+/* â”€â”€ Count col â”€â”€ */
 .count {
   font-family: 'DM Mono', monospace;
   font-size: 14px;
@@ -1373,7 +1373,7 @@ tbody tr:hover td { background: var(--bg3); color: var(--txt); }
   color: var(--txt3);
 }
 
-/* ── Loading shimmer ── */
+/* â”€â”€ Loading shimmer â”€â”€ */
 .shimmer {
   background: linear-gradient(90deg, var(--bg3) 25%, #FFFFFF 50%, var(--bg3) 75%);
   background-size: 200% 100%;
@@ -1384,7 +1384,7 @@ tbody tr:hover td { background: var(--bg3); color: var(--txt); }
 }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
-/* ── Error ── */
+/* â”€â”€ Error â”€â”€ */
 .error-banner {
   background: var(--red-light);
   border: 1px solid rgba(225,29,72,0.2);
@@ -1409,7 +1409,7 @@ tbody tr:hover td { background: var(--bg3); color: var(--txt); }
 <body>
 <div class="layout">
 
-  <!-- ── Sidebar ── -->
+  <!-- â”€â”€ Sidebar â”€â”€ -->
   <nav class="sidebar">
     <div class="sidebar-logo">
       <div class="logo-mark">
@@ -1451,7 +1451,7 @@ tbody tr:hover td { background: var(--bg3); color: var(--txt); }
     </div>
   </nav>
 
-  <!-- ── Main ── -->
+  <!-- â”€â”€ Main â”€â”€ -->
   <div class="main">
 
     <!-- Topbar -->
@@ -1480,26 +1480,26 @@ tbody tr:hover td { background: var(--bg3); color: var(--txt); }
         <div class="stat-card">
           <div class="stat-label">Clinical Notes</div>
           <div class="stat-value teal" id="s-notes"><div class="shimmer"></div></div>
-          <div class="stat-delta" id="s-notes-sub">Loading…</div>
-          <div class="stat-icon">📄</div>
+          <div class="stat-delta" id="s-notes-sub">Loadingâ€¦</div>
+          <div class="stat-icon">ðŸ“„</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">De-identified</div>
           <div class="stat-value" id="s-processed"><div class="shimmer"></div></div>
-          <div class="stat-delta" id="s-proc-sub">Loading…</div>
-          <div class="stat-icon">🔒</div>
+          <div class="stat-delta" id="s-proc-sub">Loadingâ€¦</div>
+          <div class="stat-icon">ðŸ”’</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">PHI Entities Found</div>
           <div class="stat-value amber" id="s-entities"><div class="shimmer"></div></div>
           <div class="stat-delta">across all processed notes</div>
-          <div class="stat-icon">🔍</div>
+          <div class="stat-icon">ðŸ”</div>
         </div>
         <div class="stat-card">
           <div class="stat-label">Audit Events</div>
           <div class="stat-value blue" id="s-audit"><div class="shimmer"></div></div>
           <div class="stat-delta">append-only trail</div>
-          <div class="stat-icon">📋</div>
+          <div class="stat-icon">ðŸ“‹</div>
         </div>
       </div>
 
@@ -1549,7 +1549,7 @@ tbody tr:hover td { background: var(--bg3); color: var(--txt); }
       <div class="audit-card">
         <div class="audit-header">
           <div class="audit-title">Event log</div>
-          <span class="tag tag-teal">Append-only · ICH E6 compliant</span>
+          <span class="tag tag-teal">Append-only Â· ICH E6 compliant</span>
         </div>
         <table>
           <thead>
@@ -1561,7 +1561,7 @@ tbody tr:hover td { background: var(--bg3); color: var(--txt); }
             </tr>
           </thead>
           <tbody id="audit-tbody">
-            <tr><td colspan="4" style="text-align:center;padding:24px;font-family:'DM Mono',monospace;font-size:11px;color:var(--txt3)">Loading audit events…</td></tr>
+            <tr><td colspan="4" style="text-align:center;padding:24px;font-family:'DM Mono',monospace;font-size:11px;color:var(--txt3)">Loading audit eventsâ€¦</td></tr>
           </tbody>
         </table>
       </div>
@@ -1571,7 +1571,7 @@ tbody tr:hover td { background: var(--bg3); color: var(--txt); }
 </div><!-- /layout -->
 
 <script>
-// ── Chart defaults ─────────────────────────────────────────────────────
+// â”€â”€ Chart defaults â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Chart.defaults.color = '#64748B'; /* Slate 500 */ Chart.defaults.font.weight = '500';
 Chart.defaults.font.family = "'DM Mono', monospace";
 Chart.defaults.font.size = 10;
@@ -1633,7 +1633,7 @@ function bar(id, labels, values, horizontal) {
   });
 }
 
-// ── Animated counter ───────────────────────────────────────────────────
+// â”€â”€ Animated counter â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function animateCount(el, target) {
   const start = Date.now();
   const duration = 1200;
@@ -1649,7 +1649,7 @@ function animateCount(el, target) {
   requestAnimationFrame(step);
 }
 
-// ── Event badge ────────────────────────────────────────────────────────
+// â”€â”€ Event badge â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function evBadge(type) {
   const map = {
     NER_COMPLETED: 'teal', DATA_CLEANED_POST: 'teal', PIPELINE_COMPLETE: 'blue',
@@ -1660,7 +1660,7 @@ function evBadge(type) {
   return `<span class="ev ev-${cls}"><span class="ev-dot"></span>${type}</span>`;
 }
 
-// ── Load dashboard ─────────────────────────────────────────────────────
+// â”€â”€ Load dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function load() {
   try {
     const res  = await fetch('/api/stats');
@@ -1675,7 +1675,7 @@ async function load() {
 
     const pct = data.note_count > 0
       ? ((data.processed_count / data.note_count) * 100).toFixed(1) + '% coverage'
-      : '—';
+      : 'â€”';
     document.getElementById('s-notes-sub').textContent  = data.specialty?.length + ' specialties';
     document.getElementById('s-proc-sub').textContent   = pct;
 
@@ -1702,13 +1702,13 @@ async function load() {
         <tr>
           <td>${evBadge(r.event_type)}</td>
           <td><span class="count">${r.count.toLocaleString()}</span></td>
-          <td><span class="ts">${r.first_seen ? r.first_seen.slice(0,19).replace('T',' ') : '—'}</span></td>
-          <td><span class="ts">${r.last_seen  ? r.last_seen.slice(0,19).replace('T',' ')  : '—'}</span></td>
+          <td><span class="ts">${r.first_seen ? r.first_seen.slice(0,19).replace('T',' ') : 'â€”'}</span></td>
+          <td><span class="ts">${r.last_seen  ? r.last_seen.slice(0,19).replace('T',' ')  : 'â€”'}</span></td>
         </tr>`).join('');
 
   } catch(e) {
     document.getElementById('error-container').innerHTML =
-      `<div class="error-banner">⚠ Failed to load pipeline data: ${e.message}</div>`;
+      `<div class="error-banner">âš  Failed to load pipeline data: ${e.message}</div>`;
   }
 }
 
@@ -1716,7 +1716,7 @@ load();
 setInterval(load, 30000);
 </script>
 
-<!-- ── Live De-identification Widget ── -->
+<!-- â”€â”€ Live De-identification Widget â”€â”€ -->
 <div style="margin:0 32px 40px;opacity:0;animation:card-in .5s ease .7s forwards;">
   <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:20px;">
     <span style="font-family:'Syne',sans-serif;font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--txt3);">Live De-identification</span>
@@ -1763,19 +1763,19 @@ setInterval(load, 30000);
   <div id="metrics-row" style="display:none;margin-top:12px;grid-template-columns:repeat(4,1fr);gap:12px;">
     <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
       <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px;">Entities found</div>
-      <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:var(--teal);" id="m-count">—</div>
+      <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:var(--teal);" id="m-count">â€”</div>
     </div>
     <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
       <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px;">Avg confidence</div>
-      <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:var(--txt);" id="m-conf">—</div>
+      <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:var(--txt);" id="m-conf">â€”</div>
     </div>
     <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
       <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px;">PHI types</div>
-      <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:var(--txt);" id="m-types">—</div>
+      <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;color:var(--txt);" id="m-types">â€”</div>
     </div>
     <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;">
       <div style="font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px;">Valid output</div>
-      <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;" id="m-valid">—</div>
+      <div style="font-family:'Syne',sans-serif;font-size:24px;font-weight:800;" id="m-valid">â€”</div>
     </div>
   </div>
 </div>
@@ -1866,7 +1866,7 @@ function renderMetrics(d) {
   const counts = d.entity_types || {};
   document.getElementById('entity-chips').innerHTML = Object.entries(counts).map(([label, count]) => {
     const c = ENTITY_COLORS[label] || {bg:'rgba(255,255,255,0.08)',border:'rgba(255,255,255,0.15)',text:'#aaa'};
-    return `<span style="font-family:'DM Mono',monospace;font-size:9px;padding:3px 9px;border-radius:20px;background:${c.bg};border:1px solid ${c.border};color:${c.text};">${label} ×${count}</span>`;
+    return `<span style="font-family:'DM Mono',monospace;font-size:9px;padding:3px 9px;border-radius:20px;background:${c.bg};border:1px solid ${c.border};color:${c.text};">${label} Ã—${count}</span>`;
   }).join('');
   document.getElementById('entity-summary').innerHTML =
     `<span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--txt3);">${d.entity_count} entities</span>`;
@@ -1887,7 +1887,7 @@ REPORT_TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Note {{ note_id }} · De-identification Report</title>
+<title>Note {{ note_id }} Â· De-identification Report</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -2070,7 +2070,7 @@ body::before {
 <div class="page">
 
   <div class="breadcrumb">
-    <a href="/dashboard">← Dashboard</a>
+    <a href="/dashboard">â† Dashboard</a>
     <span class="breadcrumb-sep">/</span>
     <span>Report</span>
     <span class="breadcrumb-sep">/</span>
@@ -2097,7 +2097,7 @@ body::before {
       <div class="panel-head">
         <div class="panel-head-title">
           <div class="panel-dot"></div>
-          Original — contains PHI
+          Original â€” contains PHI
         </div>
       </div>
       <div class="panel-body">{{ orig_text }}</div>
@@ -2149,7 +2149,7 @@ API_EXPLORER_TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>API Explorer · ClinicalNER</title>
+<title>API Explorer Â· ClinicalNER</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -2344,7 +2344,7 @@ async function send(method, path, bodyId, resId) {
   const statusEl = document.getElementById(resId + '-status');
   const bodyEl   = document.getElementById(resId + '-body');
   const boxEl    = document.getElementById(resId);
-  bodyEl.textContent = 'Loading…';
+  bodyEl.textContent = 'Loadingâ€¦';
   boxEl.classList.add('visible');
   statusEl.textContent = '';
 
@@ -2375,7 +2375,7 @@ SYSTEM_STATUS_TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>System Status · ClinicalNER</title>
+<title>System Status Â· ClinicalNER</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -2484,7 +2484,7 @@ tbody tr:hover td{background:rgba(15,118,110,0.02);color:var(--txt);}
       <div class="topbar-title">System Status</div>
       <div class="topbar-path">ClinicalNER / system-status</div>
     </div>
-    <span class="tag tag-teal" id="overall-status">Checking…</span>
+    <span class="tag tag-teal" id="overall-status">Checkingâ€¦</span>
   </div>
 
   <div class="content">
@@ -2503,8 +2503,8 @@ tbody tr:hover td{background:rgba(15,118,110,0.02);color:var(--txt);}
           </div>
         </div>
         <div class="check-list">
-          <div class="check-row"><span class="check-label">Service</span><span class="check-value ok" id="service-name">—</span></div>
-          <div class="check-row"><span class="check-label">Status</span><span class="check-value ok" id="service-status">—</span></div>
+          <div class="check-row"><span class="check-label">Service</span><span class="check-value ok" id="service-name">â€”</span></div>
+          <div class="check-row"><span class="check-label">Status</span><span class="check-value ok" id="service-status">â€”</span></div>
           <div class="check-row"><span class="check-label">Endpoint</span><span class="check-value" style="color:var(--txt3)">localhost:5000</span></div>
         </div>
       </div>
@@ -2518,9 +2518,9 @@ tbody tr:hover td{background:rgba(15,118,110,0.02);color:var(--txt);}
           </div>
         </div>
         <div class="check-list">
-          <div class="check-row"><span class="check-label">Clinical notes</span><span class="check-value ok" id="note-count">—</span></div>
-          <div class="check-row"><span class="check-label">Processed</span><span class="check-value ok" id="proc-count">—</span></div>
-          <div class="check-row"><span class="check-label">Audit events</span><span class="check-value ok" id="audit-count">—</span></div>
+          <div class="check-row"><span class="check-label">Clinical notes</span><span class="check-value ok" id="note-count">â€”</span></div>
+          <div class="check-row"><span class="check-label">Processed</span><span class="check-value ok" id="proc-count">â€”</span></div>
+          <div class="check-row"><span class="check-label">Audit events</span><span class="check-value ok" id="audit-count">â€”</span></div>
         </div>
       </div>
 
@@ -2558,7 +2558,7 @@ tbody tr:hover td{background:rgba(15,118,110,0.02);color:var(--txt);}
           <tr>
             <td><span class="method method-get">GET</span></td>
             <td><span style="font-family:'DM Mono',monospace;font-size:12px;">/health</span></td>
-            <td>Liveness probe · Docker HEALTHCHECK</td>
+            <td>Liveness probe Â· Docker HEALTHCHECK</td>
             <td><a href="/health" class="test-btn" target="_blank">Open</a></td>
           </tr>
           <tr>
@@ -2576,7 +2576,7 @@ tbody tr:hover td{background:rgba(15,118,110,0.02);color:var(--txt);}
           <tr>
             <td><span class="method method-post">POST</span></td>
             <td><span style="font-family:'DM Mono',monospace;font-size:12px;">/api/deidentify</span></td>
-            <td>De-identify a clinical note · returns masked text + entities</td>
+            <td>De-identify a clinical note Â· returns masked text + entities</td>
             <td><a href="/api-explorer" class="test-btn">Try it</a></td>
           </tr>
           <tr>
@@ -2611,8 +2611,8 @@ async function checkStatus() {
       fetch('/health').then(r => r.json()),
       fetch('/api/stats').then(r => r.json()),
     ]);
-    document.getElementById('service-name').textContent  = health.service || '—';
-    document.getElementById('service-status').textContent = health.status  || '—';
+    document.getElementById('service-name').textContent  = health.service || 'â€”';
+    document.getElementById('service-status').textContent = health.status  || 'â€”';
     document.getElementById('note-count').textContent    = (stats.note_count  || 0).toLocaleString();
     document.getElementById('proc-count').textContent    = (stats.processed_count || 0).toLocaleString();
     document.getElementById('audit-count').textContent   = (stats.total_audit_events || 0).toLocaleString();

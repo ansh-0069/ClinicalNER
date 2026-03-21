@@ -265,6 +265,21 @@ function setupAmbientSignature() {
 
 let statsData = null;
 
+async function parseApiResponse(response) {
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  const bodyText = await response.text();
+
+  if (contentType.includes('application/json')) {
+    try {
+      return { json: JSON.parse(bodyText), raw: bodyText, isJson: true };
+    } catch (err) {
+      return { json: null, raw: bodyText, isJson: false, parseError: err };
+    }
+  }
+
+  return { json: null, raw: bodyText, isJson: false };
+}
+
 function animateCount(id, target) {
   const node = document.getElementById(id);
   const val = { n: 0 };
@@ -325,8 +340,23 @@ async function loadStats() {
   document.getElementById('error-box').innerHTML = '';
   try {
     const res = await fetch('/api/stats');
-    const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || 'Failed to load stats');
+    const parsed = await parseApiResponse(res);
+    const data = parsed.json;
+
+    if (!res.ok) {
+      const message = (data && data.error)
+        ? data.error
+        : `Server returned ${res.status}. ${parsed.isJson ? 'No JSON error message provided.' : 'Received non-JSON response.'}`;
+      throw new Error(message);
+    }
+
+    if (!parsed.isJson || !data) {
+      throw new Error('Stats endpoint returned non-JSON content. This usually means an old deployment, auth middleware, or startup error.');
+    }
+
+    if (data.error) {
+      throw new Error(data.error);
+    }
 
     statsData = data;
     document.getElementById('json-output').textContent = JSON.stringify(data, null, 2);

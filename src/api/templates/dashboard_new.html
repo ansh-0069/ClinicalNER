@@ -889,6 +889,15 @@ function renderMaskedText(maskedText) {
   });
 }
 
+async function parseApiResponse(res) {
+  const raw = await res.text();
+  try {
+    return { data: JSON.parse(raw), raw };
+  } catch {
+    return { data: null, raw };
+  }
+}
+
 async function runDeidentify() {
   const input = document.getElementById("demo-text").value.trim();
   if (!input) return;
@@ -956,9 +965,16 @@ async function runAdminBackfill() {
       body: JSON.stringify({ clear_existing: true })
     });
 
-    const payload = await res.json();
+    const { data: payload, raw } = await parseApiResponse(res);
+    if (!payload) {
+      if (raw && /<!doctype html|<html/i.test(raw)) {
+        throw new Error("Server returned HTML instead of JSON. You may be hitting an old deployment, auth middleware, or startup error.");
+      }
+      throw new Error(raw || "Backfill failed");
+    }
+
     if (!res.ok || payload.error) {
-      throw new Error(payload.error || "Backfill failed");
+      throw new Error(payload.error || `Backfill failed (HTTP ${res.status})`);
     }
 
     const jobId = payload.job?.job_id;
@@ -977,7 +993,13 @@ async function runAdminBackfill() {
       const statRes = await fetch(`/api/admin/backfill-status/${jobId}`, {
         headers: { "X-Admin-Token": token }
       });
-      const statPayload = await statRes.json();
+      const { data: statPayload, raw: statRaw } = await parseApiResponse(statRes);
+      if (!statPayload) {
+        if (statRaw && /<!doctype html|<html/i.test(statRaw)) {
+          throw new Error("Status endpoint returned HTML instead of JSON. Check deployment health.");
+        }
+        throw new Error(statRaw || "Failed to read backfill status");
+      }
       if (!statRes.ok || statPayload.error) {
         throw new Error(statPayload.error || "Failed to read backfill status");
       }
