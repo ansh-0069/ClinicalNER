@@ -428,7 +428,40 @@ def _register_api_routes(app: Flask) -> None:
         if not request.is_json:
             return jsonify({"error": "Request must be JSON", "status": 400}), 400
 
-        notes = request.get_json().get("notes", [])
+        payload = request.get_json(silent=True) or {}
+        notes_in = payload.get("notes", [])
+
+        if not isinstance(notes_in, list):
+          return jsonify({"error": "Field 'notes' must be a JSON array", "status": 400}), 400
+
+        # Accept both list[str] and list[dict] to make the API Explorer
+        # and external clients easier to use.
+        notes: list[dict] = []
+        for idx, item in enumerate(notes_in):
+          if isinstance(item, str):
+            notes.append({"id": idx + 1, "text": item, "entities": []})
+            continue
+
+          if isinstance(item, dict):
+            note_text = (
+              item.get("text")
+              or item.get("transcription")
+              or item.get("masked_text")
+              or ""
+            )
+            entities = item.get("entities") if isinstance(item.get("entities"), list) else []
+            notes.append({
+              "id": item.get("id", idx + 1),
+              "text": str(note_text),
+              "entities": entities,
+            })
+            continue
+
+          return jsonify({
+            "error": "Each note must be either a string or an object",
+            "status": 400,
+          }), 400
+
         if len(notes) < 10:
             return jsonify({
                 "error": "Need at least 10 notes to fit the anomaly model",
