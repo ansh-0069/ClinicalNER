@@ -388,6 +388,22 @@ textarea:focus {
   line-height: 1.7;
 }
 
+.admin-tools {
+  margin-top: 16px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.admin-status {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(242, 244, 239, 0.52);
+}
+
 .matrix-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -607,6 +623,10 @@ textarea:focus {
       <div class="eyebrow">Dynamic Intelligence</div>
       <h2>New backend signals,<br>intentionally surfaced.</h2>
       <p>All backend payload additions are rendered as cards and animated in-scroll. Known metrics are highlighted while unfamiliar keys are still visualized in a dedicated feature stream.</p>
+      <div class="admin-tools">
+        <button class="btn" id="admin-backfill-btn" type="button">Run PHI Backfill</button>
+        <span class="admin-status" id="admin-backfill-status">Admin action</span>
+      </div>
     </div>
 
     <div class="matrix-grid" id="matrix-grid"></div>
@@ -915,7 +935,44 @@ async function runDeidentify() {
   }
 }
 
+async function runAdminBackfill() {
+  const token = window.prompt("Enter admin backfill token");
+  if (!token) return;
+
+  const btn = document.getElementById("admin-backfill-btn");
+  const status = document.getElementById("admin-backfill-status");
+
+  btn.disabled = true;
+  btn.textContent = "Running...";
+  status.textContent = "Backfill in progress";
+
+  try {
+    const res = await fetch("/api/admin/backfill-processed", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Admin-Token": token
+      },
+      body: JSON.stringify({ clear_existing: true })
+    });
+
+    const payload = await res.json();
+    if (!res.ok || payload.error) {
+      throw new Error(payload.error || "Backfill failed");
+    }
+
+    status.textContent = `Complete: ${payload.processed_notes || 0} notes`;
+    await loadStats();
+  } catch (err) {
+    status.textContent = `Error: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Run PHI Backfill";
+  }
+}
+
 document.getElementById("demo-btn").addEventListener("click", runDeidentify);
+document.getElementById("admin-backfill-btn").addEventListener("click", runAdminBackfill);
 
 setupHeroSequence();
 setupStoryScroll();

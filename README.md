@@ -154,7 +154,11 @@ Then open:
 - `https://<your-webapp-name>.azurewebsites.net/`
 - `https://<your-webapp-name>.azurewebsites.net/health`
 
-Full guide: [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md)
+Set these App Service environment variables for production persistence and admin backfill:
+
+- `DB_PATH=/home/site/data/clinicalner.db` (persistent storage)
+- `ADMIN_BACKFILL_TOKEN=<strong-random-token>`
+
 
 ---
 
@@ -166,9 +170,19 @@ Full guide: [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md)
 | `POST` | `/api/deidentify` | De-identify a clinical note |
 | `GET` | `/api/note/<id>` | Fetch a processed note by ID |
 | `GET` | `/api/stats` | Corpus + audit statistics (JSON) |
+| `POST` | `/api/admin/backfill-processed` | Admin-only one-shot NER backfill for hosted deployments |
 | `POST` | `/api/predict-readmission` | Predict readmission risk from note-level features |
 | `POST` | `/api/anomaly-scan` | IsolationForest anomaly scan |
 | `GET` | `/api/report/summary` | Study summary report (JSON) |
+
+Admin backfill example:
+
+```bash
+curl -X POST http://localhost:5000/api/admin/backfill-processed \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Token: <your-token>" \
+  -d '{"clear_existing": true}'
+```
 
 ## UI Routes
 

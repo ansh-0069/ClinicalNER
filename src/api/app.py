@@ -26,6 +26,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -271,6 +273,99 @@ def _register_api_routes(app: Flask) -> None:
 
         except Exception as e:
             logger.error("stats error: %s", e)
+            return jsonify({"error": str(e), "status": 500}), 500
+
+    @app.route("/api/admin/backfill-processed", methods=["POST"])
+    def admin_backfill_processed():
+        """
+        Admin-only one-shot backfill for processed_notes.
+
+        Auth:
+          Header X-Admin-Token must match env ADMIN_BACKFILL_TOKEN.
+
+        Request body (optional JSON):
+          {
+            "clear_existing": true,   # default true
+            "limit": 500              # optional positive integer
+          }
+        """
+        loader: DataLoader = app.config["LOADER"]
+        pipeline: NERPipeline = app.config["PIPELINE"]
+        audit: AuditLogger = app.config["AUDIT"]
+
+        configured_token = os.getenv("ADMIN_BACKFILL_TOKEN", "").strip()
+        if not configured_token:
+            return jsonify({
+                "error": "Backfill endpoint disabled (ADMIN_BACKFILL_TOKEN not set)",
+                "status": 503,
+            }), 503
+
+        provided_token = request.headers.get("X-Admin-Token", "").strip()
+        if not provided_token or not secrets.compare_digest(provided_token, configured_token):
+            return jsonify({"error": "Unauthorized", "status": 401}), 401
+
+        payload = request.get_json(silent=True) or {}
+        clear_existing = payload.get("clear_existing", True)
+        limit = payload.get("limit")
+
+        if limit is not None:
+            try:
+                limit = int(limit)
+                if limit <= 0:
+                    raise ValueError("limit must be > 0")
+            except Exception:
+                return jsonify({"error": "Field 'limit' must be a positive integer", "status": 400}), 400
+
+        try:
+            # Default behavior is idempotent-style refresh so repeated runs
+            # do not duplicate rows in processed_notes.
+            deleted_rows = 0
+            if clear_existing:
+                with sqlite3.connect(app.config["DB_PATH"]) as conn:
+                    try:
+                        cur = conn.execute("SELECT COUNT(*) FROM processed_notes")
+                        deleted_rows = int(cur.fetchone()[0] or 0)
+                        conn.execute("DELETE FROM processed_notes")
+                    except sqlite3.OperationalError:
+                        deleted_rows = 0
+
+            sql = "SELECT note_id, transcription FROM clinical_notes ORDER BY note_id"
+            if limit is not None:
+                sql += f" LIMIT {limit}"
+
+            notes_df = loader.sql_query(sql)
+            if notes_df.empty:
+                return jsonify({"error": "No clinical_notes found to process", "status": 400}), 400
+
+            notes = notes_df.to_dict(orient="records")
+            audit.log(
+                EventType.PIPELINE_START,
+                description=f"Admin backfill started | notes={len(notes)} | clear_existing={bool(clear_existing)}",
+                metadata={"limit": limit, "clear_existing": bool(clear_existing)},
+            )
+
+            results = pipeline.process_batch(notes, text_col="transcription", id_col="note_id")
+
+            total_entities = sum(r.get("entity_count", 0) for r in results)
+            notes_with_phi = sum(1 for r in results if r.get("entity_count", 0) > 0)
+
+            summary = {
+                "processed_notes": len(results),
+                "notes_with_phi": notes_with_phi,
+                "total_entities": int(total_entities),
+                "cleared_previous_rows": int(deleted_rows),
+            }
+
+            audit.log(
+                EventType.PIPELINE_COMPLETE,
+                description="Admin backfill completed",
+                metadata=summary,
+            )
+
+            return jsonify({"status": 200, "message": "Backfill completed", **summary}), 200
+        except Exception as e:
+            audit.log(EventType.ERROR, description=f"Admin backfill failed: {e}")
+            logger.error("admin_backfill_processed error: %s", e)
             return jsonify({"error": str(e), "status": 500}), 500
 
     @app.route("/api/predict-readmission", methods=["POST"])
