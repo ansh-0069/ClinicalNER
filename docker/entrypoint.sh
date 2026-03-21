@@ -26,7 +26,17 @@ mkdir -p /app/data/raw /app/data/eda_outputs
 # ── 2. Seed database on first boot ───────────────────────────────────────────
 DB_FILE="${DB_PATH:-/app/data/clinicalner.db}"
 DB_DIR=$(dirname "$DB_FILE")
-mkdir -p "$DB_DIR"
+
+# Some hosts may provide a DB_PATH on a location that this container user
+# cannot create. Fall back to a guaranteed writable in-container path.
+if ! mkdir -p "$DB_DIR"; then
+    echo "==> WARN: cannot create DB directory '$DB_DIR' (DB_PATH=$DB_FILE)."
+    DB_FILE="/app/data/clinicalner.db"
+    DB_DIR="/app/data"
+    mkdir -p "$DB_DIR"
+    export DB_PATH="$DB_FILE"
+    echo "==> Falling back to DB_PATH=$DB_PATH"
+fi
 
 HAS_NOTES=0
 

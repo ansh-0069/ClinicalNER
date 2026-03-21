@@ -69,6 +69,10 @@ without context switching.</h3><p>Sample actions accelerate endpoint checks acro
     <div class="label">Request Builder</div>
     <div class="row"><label class="label" for="method">Method</label><select id="method"><option>GET</option><option>POST</option></select></div>
     <div class="row"><label class="label" for="endpoint">Endpoint</label><input id="endpoint" value="/api/stats"></div>
+    <div class="label" style="margin-top:10px">Headers (JSON)</div>
+    <textarea id="headers" spellcheck="false">{
+  "Content-Type": "application/json"
+}</textarea>
     <div class="label" style="margin-top:10px">JSON Body</div>
     <textarea id="body" spellcheck="false">{
   "text": "Patient James Smith, DOB 04/12/1985, Phone (415) 555-9876, MRN302145.",
@@ -169,6 +173,7 @@ gsap.utils.toArray('.animate-up').forEach((el) => {
 
 const methodEl = document.getElementById('method');
 const endpointEl = document.getElementById('endpoint');
+const headersEl = document.getElementById('headers');
 const bodyEl = document.getElementById('body');
 const responseEl = document.getElementById('response');
 
@@ -178,8 +183,21 @@ async function sendRequest() {
   if (!endpoint) return;
 
   const options = { method, headers: {} };
+  try {
+    const parsedHeaders = JSON.parse(headersEl.value || "{}");
+    if (!parsedHeaders || Array.isArray(parsedHeaders) || typeof parsedHeaders !== 'object') {
+      throw new Error('Headers must be a JSON object');
+    }
+    options.headers = parsedHeaders;
+  } catch {
+    responseEl.textContent = 'Invalid headers JSON';
+    return;
+  }
+
   if (method === 'POST') {
-    options.headers['Content-Type'] = 'application/json';
+    if (!Object.keys(options.headers).some((k) => k.toLowerCase() === 'content-type')) {
+      options.headers['Content-Type'] = 'application/json';
+    }
     try {
       options.body = JSON.stringify(JSON.parse(bodyEl.value));
     } catch {
@@ -205,10 +223,12 @@ document.getElementById('send').addEventListener('click', sendRequest);
 document.getElementById('sample-get').addEventListener('click', () => {
   methodEl.value = 'GET';
   endpointEl.value = '/api/stats';
+  headersEl.value = JSON.stringify({}, null, 2);
 });
 document.getElementById('sample-post').addEventListener('click', () => {
   methodEl.value = 'POST';
   endpointEl.value = '/api/deidentify';
+  headersEl.value = JSON.stringify({ "Content-Type": "application/json" }, null, 2);
   bodyEl.value = JSON.stringify({ text: 'Patient Jane Roe DOB 07/11/1982 Phone 212-555-2100 MRN567890', save: false }, null, 2);
 });
 

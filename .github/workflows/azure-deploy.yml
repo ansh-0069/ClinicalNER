@@ -1,0 +1,69 @@
+name: Azure Docker Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'docker/**'
+      - 'requirements.txt'
+      - '.github/workflows/azure-deploy.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set deployment tag
+        id: meta
+        run: echo "tag=v$(date +%Y%m%d%H%M%S)-${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/clinicalner:${{ steps.meta.outputs.tag }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/clinicalner:latest
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Point Web App to new image tag
+        run: |
+          az webapp config container set \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_WEBAPP_NAME }}" \
+            --container-image-name "${{ secrets.DOCKERHUB_USERNAME }}/clinicalner:${{ steps.meta.outputs.tag }}" \
+            --container-registry-url "https://index.docker.io"
+
+      - name: Apply required app settings
+        run: |
+          az webapp config appsettings set \
+            --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" \
+            --name "${{ secrets.AZURE_WEBAPP_NAME }}" \
+            --settings \
+            DB_PATH="${{ secrets.DB_PATH }}" \
+            ADMIN_BACKFILL_TOKEN="${{ secrets.ADMIN_BACKFILL_TOKEN }}" \
+            ADMIN_REQUIRE_USER_HEADER="true"
+
+      - name: Restart web app
+        run: az webapp restart --resource-group "${{ secrets.AZURE_RESOURCE_GROUP }}" --name "${{ secrets.AZURE_WEBAPP_NAME }}"
+
+      - name: Summary
+        run: |
+          echo "Deployed image: ${{ secrets.DOCKERHUB_USERNAME }}/clinicalner:${{ steps.meta.outputs.tag }}"
+          echo "Remember to set AZURE_CREDENTIALS, AZURE_RESOURCE_GROUP, AZURE_WEBAPP_NAME, DOCKERHUB_USERNAME, DOCKERHUB_TOKEN, DB_PATH, ADMIN_BACKFILL_TOKEN secrets."

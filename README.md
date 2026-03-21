@@ -158,6 +158,20 @@ Set these App Service environment variables for production persistence and admin
 
 - `DB_PATH=/home/site/data/clinicalner.db` (persistent storage)
 - `ADMIN_BACKFILL_TOKEN=<strong-random-token>`
+- `ADMIN_REQUIRE_USER_HEADER=true` (recommended)
+- `ADMIN_ALLOWLIST_CIDRS=<cidr1>,<cidr2>` (optional; recommended for private/admin access)
+
+Automated deploy is available via GitHub Actions workflow `.github/workflows/azure-deploy.yml`.
+
+Required repository secrets:
+
+- `AZURE_CREDENTIALS`
+- `AZURE_RESOURCE_GROUP`
+- `AZURE_WEBAPP_NAME`
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`
+- `DB_PATH`
+- `ADMIN_BACKFILL_TOKEN`
 
 
 ---
@@ -171,6 +185,8 @@ Set these App Service environment variables for production persistence and admin
 | `GET` | `/api/note/<id>` | Fetch a processed note by ID |
 | `GET` | `/api/stats` | Corpus + audit statistics (JSON) |
 | `POST` | `/api/admin/backfill-processed` | Admin-only one-shot NER backfill for hosted deployments |
+| `GET` | `/api/admin/backfill-status/<job_id>` | Admin-only backfill job progress/status |
+| `GET` | `/api/admin/backfill-status` | Admin-only latest backfill job status |
 | `POST` | `/api/predict-readmission` | Predict readmission risk from note-level features |
 | `POST` | `/api/anomaly-scan` | IsolationForest anomaly scan |
 | `GET` | `/api/report/summary` | Study summary report (JSON) |
@@ -181,7 +197,13 @@ Admin backfill example:
 curl -X POST http://localhost:5000/api/admin/backfill-processed \
   -H "Content-Type: application/json" \
   -H "X-Admin-Token: <your-token>" \
+  -H "X-Admin-User: admin@company.com" \
   -d '{"clear_existing": true}'
+
+# Response includes a job_id; poll this endpoint until completed:
+curl -X GET http://localhost:5000/api/admin/backfill-status/<job_id> \
+  -H "X-Admin-Token: <your-token>" \
+  -H "X-Admin-User: admin@company.com"
 ```
 
 ## UI Routes

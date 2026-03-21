@@ -944,7 +944,7 @@ async function runAdminBackfill() {
 
   btn.disabled = true;
   btn.textContent = "Running...";
-  status.textContent = "Backfill in progress";
+  status.textContent = "Submitting backfill job";
 
   try {
     const res = await fetch("/api/admin/backfill-processed", {
@@ -961,8 +961,45 @@ async function runAdminBackfill() {
       throw new Error(payload.error || "Backfill failed");
     }
 
-    status.textContent = `Complete: ${payload.processed_notes || 0} notes`;
-    await loadStats();
+    const jobId = payload.job?.job_id;
+    if (!jobId) {
+      throw new Error("Backfill queued but no job ID returned");
+    }
+
+    status.textContent = "Backfill queued";
+    const maxPolls = 600;
+    let polls = 0;
+
+    while (polls < maxPolls) {
+      polls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      const statRes = await fetch(`/api/admin/backfill-status/${jobId}`, {
+        headers: { "X-Admin-Token": token }
+      });
+      const statPayload = await statRes.json();
+      if (!statRes.ok || statPayload.error) {
+        throw new Error(statPayload.error || "Failed to read backfill status");
+      }
+
+      const job = statPayload.job || {};
+      const pct = Number(job.progress_pct || 0).toFixed(1);
+      status.textContent = `${job.status || "running"} ${pct}% (${job.processed_notes || 0}/${job.total_notes || 0})`;
+
+      if (job.status === "completed") {
+        status.textContent = `Complete: ${job.processed_notes || 0} notes`;
+        await loadStats();
+        break;
+      }
+
+      if (job.status === "failed") {
+        throw new Error(job.error || "Backfill failed");
+      }
+    }
+
+    if (polls >= maxPolls) {
+      throw new Error("Backfill is still running; check status again in a few moments");
+    }
   } catch (err) {
     status.textContent = `Error: ${err.message}`;
   } finally {

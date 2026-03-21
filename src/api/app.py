@@ -29,9 +29,15 @@ import os
 import secrets
 import sqlite3
 import sys
+import threading
+import time
+import uuid
+from collections import defaultdict, deque
+from datetime import datetime, timezone
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, g
 from flask_cors import CORS
 
 # Allow imports from project root
@@ -76,6 +82,34 @@ def create_app(db_path: str | None = None) -> Flask:
     app.config["AUDIT"]    = AuditLogger(db_path=resolved_db_path)
     app.config["DETECTOR"] = AnomalyDetector(contamination=0.05)
     app.config["PREDICTOR"] = ReadmissionPredictor()
+    app.config["BACKFILL_JOBS"] = {}
+    app.config["BACKFILL_LOCK"] = threading.Lock()
+    app.config["BACKFILL_ACTIVE_JOB_ID"] = None
+    app.config["RATE_LIMIT_BUCKETS"] = defaultdict(deque)
+    app.config["RATE_LIMIT_LOCK"] = threading.Lock()
+
+    @app.before_request
+    def _attach_request_context() -> None:
+      g.request_id = uuid.uuid4().hex[:12]
+      g.request_started_at = time.perf_counter()
+
+    @app.after_request
+    def _emit_request_observability(response):
+      request_id = getattr(g, "request_id", "unknown")
+      response.headers["X-Request-ID"] = request_id
+
+      started = getattr(g, "request_started_at", None)
+      latency_ms = round((time.perf_counter() - started) * 1000, 2) if started else -1
+      logger.info(
+        "req_id=%s method=%s path=%s status=%s latency_ms=%s ip=%s",
+        request_id,
+        request.method,
+        request.path,
+        response.status_code,
+        latency_ms,
+        request.headers.get("X-Forwarded-For", request.remote_addr),
+      )
+      return response
 
     logger.info("ClinicalNER Flask app initialised | db=%s", resolved_db_path)
 
@@ -89,6 +123,192 @@ def create_app(db_path: str | None = None) -> Flask:
 # ── API routes ────────────────────────────────────────────────────────────────
 
 def _register_api_routes(app: Flask) -> None:
+
+  def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+  def _client_ip() -> str:
+    forwarded = request.headers.get("X-Forwarded-For", "").strip()
+    if forwarded:
+      return forwarded.split(",")[0].strip()
+    return (request.remote_addr or "").strip()
+
+  def _is_ip_allowed(ip_str: str, cidr_list_raw: str) -> bool:
+    if not cidr_list_raw.strip():
+      return True
+    try:
+      addr = ip_address(ip_str)
+      for cidr in [c.strip() for c in cidr_list_raw.split(",") if c.strip()]:
+        if addr in ip_network(cidr, strict=False):
+          return True
+      return False
+    except Exception:
+      return False
+
+  def _check_rate_limit(route_key: str, limit: int, window_sec: int) -> tuple[bool, tuple[dict, int] | None]:
+    buckets = app.config["RATE_LIMIT_BUCKETS"]
+    lock: threading.Lock = app.config["RATE_LIMIT_LOCK"]
+    now = time.time()
+    ip = _client_ip() or "unknown"
+    bucket_key = f"{route_key}:{ip}"
+
+    with lock:
+      q: deque = buckets[bucket_key]
+      cutoff = now - window_sec
+      while q and q[0] < cutoff:
+        q.popleft()
+
+      if len(q) >= limit:
+        retry_after = int(max(1, window_sec - (now - q[0])))
+        return False, ({
+          "error": f"Rate limit exceeded for {route_key}. Retry in {retry_after}s",
+          "status": 429,
+        }, 429)
+
+      q.append(now)
+    return True, None
+
+  def _auth_admin_token() -> tuple[bool, str, tuple[dict, int] | None]:
+    configured_token = os.getenv("ADMIN_BACKFILL_TOKEN", "").strip()
+    if not configured_token:
+      return False, "", ({
+        "error": "Backfill endpoint disabled (ADMIN_BACKFILL_TOKEN not set)",
+        "status": 503,
+      }, 503)
+
+    provided_token = request.headers.get("X-Admin-Token", "").strip()
+    if not provided_token or not secrets.compare_digest(provided_token, configured_token):
+      return False, "", ({"error": "Unauthorized", "status": 401}, 401)
+
+    # Optional hardening: enforce an admin user header.
+    require_user_header = os.getenv("ADMIN_REQUIRE_USER_HEADER", "false").strip().lower() in {"1", "true", "yes"}
+    if require_user_header and not request.headers.get("X-Admin-User", "").strip():
+      return False, "", ({"error": "Missing X-Admin-User header", "status": 401}, 401)
+
+    # Optional hardening: allow only known CIDRs.
+    allow_cidrs = os.getenv("ADMIN_ALLOWLIST_CIDRS", "")
+    ip = _client_ip()
+    if not _is_ip_allowed(ip, allow_cidrs):
+      return False, "", ({"error": "Forbidden: source IP not in allowlist", "status": 403}, 403)
+
+    return True, provided_token, None
+
+  def _get_backfill_payload() -> tuple[dict, tuple[dict, int] | None]:
+    payload = request.get_json(silent=True) or {}
+    clear_existing = payload.get("clear_existing", True)
+    limit = payload.get("limit")
+
+    if limit is not None:
+      try:
+        limit = int(limit)
+        if limit <= 0:
+          raise ValueError("limit must be > 0")
+      except Exception:
+        return {}, ({"error": "Field 'limit' must be a positive integer", "status": 400}, 400)
+
+    return {
+      "clear_existing": bool(clear_existing),
+      "limit": limit,
+    }, None
+
+  def _run_backfill_job(job_id: str, clear_existing: bool, limit: int | None) -> None:
+    loader: DataLoader = app.config["LOADER"]
+    pipeline: NERPipeline = app.config["PIPELINE"]
+    audit: AuditLogger = app.config["AUDIT"]
+    jobs: dict = app.config["BACKFILL_JOBS"]
+    lock: threading.Lock = app.config["BACKFILL_LOCK"]
+
+    with lock:
+      job = jobs[job_id]
+      job["status"] = "running"
+      job["started_at"] = _utc_now()
+
+    try:
+      deleted_rows = 0
+      if clear_existing:
+        with sqlite3.connect(app.config["DB_PATH"]) as conn:
+          try:
+            cur = conn.execute("SELECT COUNT(*) FROM processed_notes")
+            deleted_rows = int(cur.fetchone()[0] or 0)
+            conn.execute("DELETE FROM processed_notes")
+          except sqlite3.OperationalError:
+            deleted_rows = 0
+
+      sql = "SELECT note_id, transcription FROM clinical_notes ORDER BY note_id"
+      if limit is not None:
+        sql += f" LIMIT {limit}"
+
+      notes_df = loader.sql_query(sql)
+      total_notes = int(len(notes_df))
+      if notes_df.empty:
+        with lock:
+          job["status"] = "failed"
+          job["error"] = "No clinical_notes found to process"
+          job["finished_at"] = _utc_now()
+        return
+
+      notes = notes_df.to_dict(orient="records")
+      audit.log(
+        EventType.PIPELINE_START,
+        description=f"Admin backfill started | notes={len(notes)} | clear_existing={clear_existing}",
+        metadata={"limit": limit, "clear_existing": clear_existing, "job_id": job_id},
+      )
+
+      processed = 0
+      total_entities = 0
+      notes_with_phi = 0
+
+      for item in notes:
+        text = str(item.get("transcription") or "")
+        note_id = item.get("note_id")
+        result = pipeline.process_note(text, note_id=note_id, save_to_db=True)
+
+        count = int(result.get("entity_count", 0) or 0)
+        total_entities += count
+        if count > 0:
+          notes_with_phi += 1
+
+        processed += 1
+        if processed % 10 == 0 or processed == total_notes:
+          with lock:
+            job["processed_notes"] = processed
+            job["total_notes"] = total_notes
+            job["total_entities"] = total_entities
+            job["notes_with_phi"] = notes_with_phi
+            job["progress_pct"] = round((processed / max(total_notes, 1)) * 100, 1)
+
+      with lock:
+        job["status"] = "completed"
+        job["processed_notes"] = processed
+        job["total_notes"] = total_notes
+        job["notes_with_phi"] = notes_with_phi
+        job["total_entities"] = total_entities
+        job["cleared_previous_rows"] = deleted_rows
+        job["progress_pct"] = 100.0
+        job["finished_at"] = _utc_now()
+
+      audit.log(
+        EventType.PIPELINE_COMPLETE,
+        description="Admin backfill completed",
+        metadata={
+          "job_id": job_id,
+          "processed_notes": processed,
+          "notes_with_phi": notes_with_phi,
+          "total_entities": total_entities,
+          "cleared_previous_rows": deleted_rows,
+        },
+      )
+    except Exception as e:
+      with lock:
+        jobs[job_id]["status"] = "failed"
+        jobs[job_id]["error"] = str(e)
+        jobs[job_id]["finished_at"] = _utc_now()
+      audit.log(EventType.ERROR, description=f"Admin backfill failed [{job_id}]: {e}")
+      logger.error("admin_backfill job failed [%s]: %s", job_id, e)
+    finally:
+      with lock:
+        if app.config.get("BACKFILL_ACTIVE_JOB_ID") == job_id:
+          app.config["BACKFILL_ACTIVE_JOB_ID"] = None
 
     @app.route("/health")
     def health():
@@ -122,6 +342,10 @@ def _register_api_routes(app: Flask) -> None:
         pipeline: NERPipeline = app.config["PIPELINE"]
         cleaner:  DataCleaner = app.config["CLEANER"]
         audit:    AuditLogger = app.config["AUDIT"]
+
+        ok, rate_error = _check_rate_limit("deidentify", limit=120, window_sec=60)
+        if not ok:
+          return jsonify(rate_error[0]), rate_error[1]
 
         # ── Input validation ──────────────────────────────────────────────────
         if not request.is_json:
@@ -289,89 +513,102 @@ def _register_api_routes(app: Flask) -> None:
             "limit": 500              # optional positive integer
           }
         """
-        loader: DataLoader = app.config["LOADER"]
-        pipeline: NERPipeline = app.config["PIPELINE"]
-        audit: AuditLogger = app.config["AUDIT"]
+        ok, _, auth_error = _auth_admin_token()
+        if not ok:
+          return jsonify(auth_error[0]), auth_error[1]
 
-        configured_token = os.getenv("ADMIN_BACKFILL_TOKEN", "").strip()
-        if not configured_token:
+        payload, payload_error = _get_backfill_payload()
+        if payload_error:
+          return jsonify(payload_error[0]), payload_error[1]
+
+        jobs: dict = app.config["BACKFILL_JOBS"]
+        lock: threading.Lock = app.config["BACKFILL_LOCK"]
+
+        with lock:
+          active_job_id = app.config.get("BACKFILL_ACTIVE_JOB_ID")
+          if active_job_id and jobs.get(active_job_id, {}).get("status") in {"queued", "running"}:
             return jsonify({
-                "error": "Backfill endpoint disabled (ADMIN_BACKFILL_TOKEN not set)",
-                "status": 503,
-            }), 503
+              "error": "A backfill job is already running",
+              "status": 409,
+              "job": jobs[active_job_id],
+            }), 409
 
-        provided_token = request.headers.get("X-Admin-Token", "").strip()
-        if not provided_token or not secrets.compare_digest(provided_token, configured_token):
-            return jsonify({"error": "Unauthorized", "status": 401}), 401
+          job_id = uuid.uuid4().hex
+          jobs[job_id] = {
+            "job_id": job_id,
+            "status": "queued",
+            "created_at": _utc_now(),
+            "started_at": None,
+            "finished_at": None,
+            "processed_notes": 0,
+            "total_notes": 0,
+            "notes_with_phi": 0,
+            "total_entities": 0,
+            "cleared_previous_rows": 0,
+            "progress_pct": 0.0,
+            "clear_existing": payload["clear_existing"],
+            "limit": payload["limit"],
+            "error": None,
+          }
+          app.config["BACKFILL_ACTIVE_JOB_ID"] = job_id
 
-        payload = request.get_json(silent=True) or {}
-        clear_existing = payload.get("clear_existing", True)
-        limit = payload.get("limit")
+        worker = threading.Thread(
+          target=_run_backfill_job,
+          args=(job_id, payload["clear_existing"], payload["limit"]),
+          daemon=True,
+          name=f"backfill-{job_id[:8]}",
+        )
+        worker.start()
 
-        if limit is not None:
-            try:
-                limit = int(limit)
-                if limit <= 0:
-                    raise ValueError("limit must be > 0")
-            except Exception:
-                return jsonify({"error": "Field 'limit' must be a positive integer", "status": 400}), 400
+        return jsonify({
+          "status": 202,
+          "message": "Backfill job queued",
+          "job": jobs[job_id],
+        }), 202
 
-        try:
-            # Default behavior is idempotent-style refresh so repeated runs
-            # do not duplicate rows in processed_notes.
-            deleted_rows = 0
-            if clear_existing:
-                with sqlite3.connect(app.config["DB_PATH"]) as conn:
-                    try:
-                        cur = conn.execute("SELECT COUNT(*) FROM processed_notes")
-                        deleted_rows = int(cur.fetchone()[0] or 0)
-                        conn.execute("DELETE FROM processed_notes")
-                    except sqlite3.OperationalError:
-                        deleted_rows = 0
+    @app.route("/api/admin/backfill-status/<job_id>", methods=["GET"])
+    def admin_backfill_status(job_id: str):
+        """Return status for a previously created admin backfill job."""
+        ok, rate_error = _check_rate_limit("admin_backfill_status", limit=240, window_sec=60)
+        if not ok:
+            return jsonify(rate_error[0]), rate_error[1]
 
-            sql = "SELECT note_id, transcription FROM clinical_notes ORDER BY note_id"
-            if limit is not None:
-                sql += f" LIMIT {limit}"
+        ok, _, auth_error = _auth_admin_token()
+        if not ok:
+            return jsonify(auth_error[0]), auth_error[1]
 
-            notes_df = loader.sql_query(sql)
-            if notes_df.empty:
-                return jsonify({"error": "No clinical_notes found to process", "status": 400}), 400
+        jobs: dict = app.config["BACKFILL_JOBS"]
+        job = jobs.get(job_id)
+        if not job:
+            return jsonify({"error": "Backfill job not found", "status": 404}), 404
+        return jsonify({"status": 200, "job": job}), 200
 
-            notes = notes_df.to_dict(orient="records")
-            audit.log(
-                EventType.PIPELINE_START,
-                description=f"Admin backfill started | notes={len(notes)} | clear_existing={bool(clear_existing)}",
-                metadata={"limit": limit, "clear_existing": bool(clear_existing)},
-            )
+    @app.route("/api/admin/backfill-status", methods=["GET"])
+    def admin_backfill_status_latest():
+        """Return latest backfill job status if available."""
+        ok, rate_error = _check_rate_limit("admin_backfill_status", limit=240, window_sec=60)
+        if not ok:
+            return jsonify(rate_error[0]), rate_error[1]
 
-            results = pipeline.process_batch(notes, text_col="transcription", id_col="note_id")
+        ok, _, auth_error = _auth_admin_token()
+        if not ok:
+            return jsonify(auth_error[0]), auth_error[1]
 
-            total_entities = sum(r.get("entity_count", 0) for r in results)
-            notes_with_phi = sum(1 for r in results if r.get("entity_count", 0) > 0)
+        jobs: dict = app.config["BACKFILL_JOBS"]
+        if not jobs:
+            return jsonify({"status": 200, "job": None}), 200
 
-            summary = {
-                "processed_notes": len(results),
-                "notes_with_phi": notes_with_phi,
-                "total_entities": int(total_entities),
-                "cleared_previous_rows": int(deleted_rows),
-            }
-
-            audit.log(
-                EventType.PIPELINE_COMPLETE,
-                description="Admin backfill completed",
-                metadata=summary,
-            )
-
-            return jsonify({"status": 200, "message": "Backfill completed", **summary}), 200
-        except Exception as e:
-            audit.log(EventType.ERROR, description=f"Admin backfill failed: {e}")
-            logger.error("admin_backfill_processed error: %s", e)
-            return jsonify({"error": str(e), "status": 500}), 500
+        latest = max(jobs.values(), key=lambda j: j.get("created_at") or "")
+        return jsonify({"status": 200, "job": latest}), 200
 
     @app.route("/api/predict-readmission", methods=["POST"])
     def predict_readmission():
         predictor: ReadmissionPredictor = app.config["PREDICTOR"]
         loader:    DataLoader           = app.config["LOADER"]
+
+        ok, rate_error = _check_rate_limit("predict_readmission", limit=30, window_sec=60)
+        if not ok:
+            return jsonify(rate_error[0]), rate_error[1]
 
         if not request.is_json:
             return jsonify({"error": "Request must be JSON", "status": 400}), 400
@@ -425,6 +662,10 @@ def _register_api_routes(app: Flask) -> None:
         detector: AnomalyDetector = app.config["DETECTOR"]
         audit:    AuditLogger     = app.config["AUDIT"]
 
+        ok, rate_error = _check_rate_limit("anomaly_scan", limit=20, window_sec=60)
+        if not ok:
+            return jsonify(rate_error[0]), rate_error[1]
+
         if not request.is_json:
             return jsonify({"error": "Request must be JSON", "status": 400}), 400
 
@@ -432,35 +673,35 @@ def _register_api_routes(app: Flask) -> None:
         notes_in = payload.get("notes", [])
 
         if not isinstance(notes_in, list):
-          return jsonify({"error": "Field 'notes' must be a JSON array", "status": 400}), 400
+            return jsonify({"error": "Field 'notes' must be a JSON array", "status": 400}), 400
 
         # Accept both list[str] and list[dict] to make the API Explorer
         # and external clients easier to use.
         notes: list[dict] = []
         for idx, item in enumerate(notes_in):
-          if isinstance(item, str):
-            notes.append({"id": idx + 1, "text": item, "entities": []})
-            continue
+            if isinstance(item, str):
+                notes.append({"id": idx + 1, "text": item, "entities": []})
+                continue
 
-          if isinstance(item, dict):
-            note_text = (
-              item.get("text")
-              or item.get("transcription")
-              or item.get("masked_text")
-              or ""
-            )
-            entities = item.get("entities") if isinstance(item.get("entities"), list) else []
-            notes.append({
-              "id": item.get("id", idx + 1),
-              "text": str(note_text),
-              "entities": entities,
-            })
-            continue
+            if isinstance(item, dict):
+                note_text = (
+                    item.get("text")
+                    or item.get("transcription")
+                    or item.get("masked_text")
+                    or ""
+                )
+                entities = item.get("entities") if isinstance(item.get("entities"), list) else []
+                notes.append({
+                    "id": item.get("id", idx + 1),
+                    "text": str(note_text),
+                    "entities": entities,
+                })
+                continue
 
-          return jsonify({
-            "error": "Each note must be either a string or an object",
-            "status": 400,
-          }), 400
+            return jsonify({
+                "error": "Each note must be either a string or an object",
+                "status": 400,
+            }), 400
 
         if len(notes) < 10:
             return jsonify({
