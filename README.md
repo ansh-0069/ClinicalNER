@@ -3,7 +3,7 @@
 ![CI](https://github.com/ansh-0069/ClinicalNER/actions/workflows/tests.yml/badge.svg)
 ![Tests](https://img.shields.io/badge/tests-192%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)
-![Live](https://img.shields.io/badge/live-railway-brightgreen)
+![Live](https://img.shields.io/badge/live-azure-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 ![spaCy](https://img.shields.io/badge/spaCy-3.x-09a3d5)
 ![Docker](https://img.shields.io/badge/docker-ready-blue)
@@ -15,20 +15,20 @@ An end-to-end NLP pipeline that automates PHI de-identification in clinical tria
 
 ## Live Demo
 
-Frontend + API are deployed on Railway:
+Frontend + API are deployed on Azure App Service:
 
-https://thorough-mercy-production-6ca9.up.railway.app/
+https://clinicalner-ansh.azurewebsites.net/
 
-| Page | URL |
-| --- | --- |
-| Landing page | https://thorough-mercy-production-6ca9.up.railway.app/ |
-| Dashboard | https://thorough-mercy-production-6ca9.up.railway.app/dashboard |
-| Stats | https://thorough-mercy-production-6ca9.up.railway.app/stats |
-| API Explorer | https://thorough-mercy-production-6ca9.up.railway.app/api-explorer |
-| System Status | https://thorough-mercy-production-6ca9.up.railway.app/system-status |
-| Report Summary | https://thorough-mercy-production-6ca9.up.railway.app/report/summary |
-| Raw Summary JSON | https://thorough-mercy-production-6ca9.up.railway.app/api/report/summary |
-| Health probe | https://thorough-mercy-production-6ca9.up.railway.app/health |
+| Page             | URL                                                           |
+| ---------------- | ------------------------------------------------------------- |
+| Landing page     | https://clinicalner-ansh.azurewebsites.net/                   |
+| Dashboard        | https://clinicalner-ansh.azurewebsites.net/dashboard          |
+| Stats            | https://clinicalner-ansh.azurewebsites.net/stats              |
+| API Explorer     | https://clinicalner-ansh.azurewebsites.net/api-explorer       |
+| System Status    | https://clinicalner-ansh.azurewebsites.net/system-status      |
+| Report Summary   | https://clinicalner-ansh.azurewebsites.net/report/summary     |
+| Raw Summary JSON | https://clinicalner-ansh.azurewebsites.net/api/report/summary |
+| Health probe     | https://clinicalner-ansh.azurewebsites.net/health             |
 
 ---
 
@@ -173,23 +173,22 @@ Required repository secrets:
 - `DB_PATH`
 - `ADMIN_BACKFILL_TOKEN`
 
-
 ---
 
 ## API Endpoints
 
-| Method | Route | Description |
-| --- | --- | --- |
-| `GET` | `/health` | Liveness probe (Docker / cloud LB) |
-| `POST` | `/api/deidentify` | De-identify a clinical note |
-| `GET` | `/api/note/<id>` | Fetch a processed note by ID |
-| `GET` | `/api/stats` | Corpus + audit statistics (JSON) |
-| `POST` | `/api/admin/backfill-processed` | Admin-only one-shot NER backfill for hosted deployments |
-| `GET` | `/api/admin/backfill-status/<job_id>` | Admin-only backfill job progress/status |
-| `GET` | `/api/admin/backfill-status` | Admin-only latest backfill job status |
-| `POST` | `/api/predict-readmission` | Predict readmission risk from note-level features |
-| `POST` | `/api/anomaly-scan` | IsolationForest anomaly scan |
-| `GET` | `/api/report/summary` | Study summary report (JSON) |
+| Method   | Route                                   | Description                                             |
+| -------- | --------------------------------------- | ------------------------------------------------------- |
+| `GET`  | `/health`                             | Liveness probe (Docker / cloud LB)                      |
+| `POST` | `/api/deidentify`                     | De-identify a clinical note                             |
+| `GET`  | `/api/note/<id>`                      | Fetch a processed note by ID                            |
+| `GET`  | `/api/stats`                          | Corpus + audit statistics (JSON)                        |
+| `POST` | `/api/admin/backfill-processed`       | Admin-only one-shot NER backfill for hosted deployments |
+| `GET`  | `/api/admin/backfill-status/<job_id>` | Admin-only backfill job progress/status                 |
+| `GET`  | `/api/admin/backfill-status`          | Admin-only latest backfill job status                   |
+| `POST` | `/api/predict-readmission`            | Predict readmission risk from note-level features       |
+| `POST` | `/api/anomaly-scan`                   | IsolationForest anomaly scan                            |
+| `GET`  | `/api/report/summary`                 | Study summary report (JSON)                             |
 
 Admin backfill example:
 
@@ -208,14 +207,14 @@ curl -X GET http://localhost:5000/api/admin/backfill-status/<job_id> \
 
 ## UI Routes
 
-| Method | Route | Description |
-| --- | --- | --- |
-| `GET` | `/` | Primary landing page |
-| `GET` | `/dashboard` | Dashboard page |
-| `GET` | `/stats` | Stats page |
-| `GET` | `/system-status` | System status page |
-| `GET` | `/api-explorer` | Interactive API explorer |
-| `GET` | `/report/<id>` | Before/after note diff |
+| Method  | Route               | Description                  |
+| ------- | ------------------- | ---------------------------- |
+| `GET` | `/`               | Primary landing page         |
+| `GET` | `/dashboard`      | Dashboard page               |
+| `GET` | `/stats`          | Stats page                   |
+| `GET` | `/system-status`  | System status page           |
+| `GET` | `/api-explorer`   | Interactive API explorer     |
+| `GET` | `/report/<id>`    | Before/after note diff       |
 | `GET` | `/report/summary` | Human-readable study summary |
 
 ### Example
@@ -477,7 +476,6 @@ Clinical Trials • HIPAA • ICH E6 (GCP) • 21 CFR Part 11 • CDISC • Data
 For questions about this project:
 
 - **GitHub**: [github.com/ansh-0069](https://github.com/ansh-0069)
-- **Live Demo**: [thorough-mercy-production-6ca9.up.railway.app](https://thorough-mercy-production-6ca9.up.railway.app)
 
 ---
 
