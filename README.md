@@ -138,6 +138,24 @@ docker compose down
 Container auto-seeds the database with 500 synthetic notes on first boot.
 Dashboard: **http://localhost:5000/dashboard**
 
+## Quick Start (Azure)
+
+Deploy to Azure App Service using the provided script:
+
+```bash
+chmod +x docker/deploy_azure.sh
+AZURE_WEBAPP_NAME=clinicalner-demo-12345 \
+AZURE_ACR_NAME=clinicalneracr12345 \
+./docker/deploy_azure.sh
+```
+
+Then open:
+
+- `https://<your-webapp-name>.azurewebsites.net/`
+- `https://<your-webapp-name>.azurewebsites.net/health`
+
+Full guide: [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md)
+
 ---
 
 ## API Endpoints
@@ -357,6 +375,7 @@ high_risk = loader.sql_query(QUERY_CATALOG['high_risk_notes'])
 - **[CLINICAL_USE_CASES.md](CLINICAL_USE_CASES.md)** — 6 real-world use cases with ROI analysis
 - **[COMPLIANCE.md](COMPLIANCE.md)** — HIPAA, ICH E6, 21 CFR Part 11 compliance documentation
 - **[STRUCTURE.md](STRUCTURE.md)** — Project architecture and file organization
+- **[AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md)** — Azure App Service + ACR deployment guide
 
 ---
 
