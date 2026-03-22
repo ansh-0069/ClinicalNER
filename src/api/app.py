@@ -206,9 +206,20 @@ def _register_api_routes(app: Flask) -> None:
         "status": 503,
       }, 503)
 
+    # Accept multiple auth transports to tolerate proxy/header normalization.
     provided_token = request.headers.get("X-Admin-Token", "").strip()
+    if not provided_token:
+      auth_header = request.headers.get("Authorization", "").strip()
+      if auth_header.lower().startswith("bearer "):
+        provided_token = auth_header[7:].strip()
+    if not provided_token:
+      provided_token = request.headers.get("X-API-Key", "").strip()
+    if not provided_token and request.method in {"POST", "PUT", "PATCH"}:
+      payload = request.get_json(silent=True) or {}
+      provided_token = str(payload.get("admin_token", "")).strip()
+
     if not provided_token or not secrets.compare_digest(provided_token, configured_token):
-      return False, "", ({"error": "Unauthorized", "status": 401}, 401)
+      return False, "", ({"error": "Unauthorized: invalid admin token", "status": 401}, 401)
 
     # Optional hardening: enforce an admin user header.
     require_user_header = os.getenv("ADMIN_REQUIRE_USER_HEADER", "false").strip().lower() in {"1", "true", "yes"}

@@ -970,9 +970,13 @@ async function runAdminBackfill() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Admin-Token": token
+        "X-Admin-Token": token,
+        "Authorization": "Bearer " + token
       },
-      body: JSON.stringify({ clear_existing: true })
+      body: JSON.stringify({
+        clear_existing: true,
+        admin_token: token
+      })
     });
 
     const { data: payload, raw } = await parseApiResponse(res);
@@ -1001,7 +1005,10 @@ async function runAdminBackfill() {
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
       const statRes = await fetch(`/api/admin/backfill-status/${jobId}`, {
-        headers: { "X-Admin-Token": token }
+        headers: {
+          "X-Admin-Token": token,
+          "Authorization": "Bearer " + token
+        }
       });
       const { data: statPayload, raw: statRaw } = await parseApiResponse(statRes);
       if (!statPayload) {

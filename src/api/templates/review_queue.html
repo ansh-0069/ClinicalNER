@@ -317,6 +317,7 @@ async function pollBackfill(jobId, adminToken, adminUser) {
     const res = await fetch('/api/admin/backfill-status/' + encodeURIComponent(jobId), {
       headers: {
         'X-Admin-Token': adminToken,
+        'Authorization': 'Bearer ' + adminToken,
         'X-Admin-User': adminUser
       }
     });
@@ -371,10 +372,12 @@ runBackfillBtn.addEventListener('click', async () => {
       headers: {
         'Content-Type': 'application/json',
         'X-Admin-Token': adminToken,
+        'Authorization': 'Bearer ' + adminToken,
         'X-Admin-User': reviewer
       },
       body: JSON.stringify({
-        clear_existing: Boolean(clearExistingInput.checked)
+        clear_existing: Boolean(clearExistingInput.checked),
+        admin_token: adminToken
       })
     });
 
