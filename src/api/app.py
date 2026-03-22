@@ -793,9 +793,13 @@ def _register_api_routes(app: Flask) -> None:
           logger.error("stats error: %s", e)
           return jsonify({"error": str(e), "status": 500}), 500
 
+  # Notes with >= this many detected PHI spans are eligible for the manual review queue
+  # (5 = medium+ density; 8+ still counts as "high" in dashboard stats).
+  _REVIEW_QUEUE_MIN_ENTITIES_DEFAULT = 5
+
   @app.route("/api/review/queue", methods=["GET"])
   def review_queue():
-      """Return high-risk processed notes pending manual review."""
+      """Return processed notes pending manual review (PHI density >= min_entity_count)."""
       loader: DataLoader = app.config["LOADER"]
       _ensure_review_table(loader)
 
@@ -813,9 +817,17 @@ def _register_api_routes(app: Flask) -> None:
       except Exception:
           limit = 50
 
+      min_raw = request.args.get(
+          "min_entity_count", str(_REVIEW_QUEUE_MIN_ENTITIES_DEFAULT)
+      )
+      try:
+          min_entity_count = max(1, min(int(min_raw), 50))
+      except Exception:
+          min_entity_count = _REVIEW_QUEUE_MIN_ENTITIES_DEFAULT
+
       try:
           rows = loader.sql_query(
-              f"""
+              """
               SELECT
                 pn.note_id,
                 pn.masked_text,
@@ -823,11 +835,12 @@ def _register_api_routes(app: Flask) -> None:
                 pn.processed_at
               FROM processed_notes pn
               LEFT JOIN review_decisions rd ON rd.note_id = pn.note_id
-              WHERE pn.entity_count >= 8
+              WHERE pn.entity_count >= ?
                 AND rd.note_id IS NULL
               ORDER BY pn.entity_count DESC, pn.processed_at DESC
-              LIMIT {limit}
-              """
+              LIMIT ?
+              """,
+              (min_entity_count, limit),
           )
       except Exception as e:
           return jsonify({"error": f"Unable to load review queue: {e}", "status": 500}), 500
@@ -835,6 +848,7 @@ def _register_api_routes(app: Flask) -> None:
       return jsonify({
           "status": 200,
           "count": int(len(rows)),
+          "min_entity_count": min_entity_count,
           "items": rows.to_dict(orient="records"),
       }), 200
 
@@ -882,8 +896,9 @@ def _register_api_routes(app: Flask) -> None:
             SELECT COUNT(*) AS n
             FROM processed_notes pn
             LEFT JOIN review_decisions rd ON rd.note_id = pn.note_id
-            WHERE pn.entity_count >= 8 AND rd.note_id IS NULL
-            """
+            WHERE pn.entity_count >= ? AND rd.note_id IS NULL
+            """,
+            (_REVIEW_QUEUE_MIN_ENTITIES_DEFAULT,),
           )
         else:
           pending_df = None
@@ -970,8 +985,9 @@ def _register_api_routes(app: Flask) -> None:
               SELECT COUNT(*) AS n
               FROM processed_notes pn
               LEFT JOIN review_decisions rd ON rd.note_id = pn.note_id
-              WHERE pn.entity_count >= 8 AND rd.note_id IS NULL
-              """
+              WHERE pn.entity_count >= ? AND rd.note_id IS NULL
+              """,
+              (_REVIEW_QUEUE_MIN_ENTITIES_DEFAULT,),
             )
           else:
             pending_df = None

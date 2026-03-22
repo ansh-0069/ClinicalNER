@@ -237,7 +237,7 @@ class DataLoader:
         logger.info("Loaded %d rows from '%s'", len(df), table)
         return df
 
-    def sql_query(self, query: str) -> pd.DataFrame:
+    def sql_query(self, query: str, params: tuple | list | None = None) -> pd.DataFrame:
         """
         Run an arbitrary SQL query against the project DB.
 
@@ -246,9 +246,12 @@ class DataLoader:
                 "SELECT medical_specialty, COUNT(*) as n "
                 "FROM clinical_notes GROUP BY medical_specialty ORDER BY n DESC"
             )
+            loader.sql_query("SELECT * FROM t WHERE id = ?", (note_id,))
         """
         with sqlite3.connect(self.db_path) as conn:
-            return pd.read_sql_query(query, conn)
+            if params is None:
+                return pd.read_sql_query(query, conn)
+            return pd.read_sql_query(query, conn, params=tuple(params))
 
     def quarantine_invalid_specialties(
         self, df: pd.DataFrame
