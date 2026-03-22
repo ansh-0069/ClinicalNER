@@ -65,7 +65,7 @@ body{
   font-size:11px;
   padding:8px 10px;
 }
-input, textarea, button {
+input, textarea, button, select {
   font-family:var(--mono);
   font-size:12px;
   border:1px solid var(--line);
@@ -73,8 +73,8 @@ input, textarea, button {
   color:var(--paper);
   padding:10px 12px;
 }
-input, textarea { outline:none; }
-input:focus-visible, textarea:focus-visible, button:focus-visible {
+input, textarea, select { outline:none; }
+input:focus-visible, textarea:focus-visible, button:focus-visible, select:focus-visible {
   outline:2px solid rgba(200,255,69,.72);
   outline-offset:2px;
 }
@@ -91,6 +91,18 @@ button.primary{background:var(--signal);color:#111510;border-color:transparent;f
 .metric{background:rgba(10,12,13,.96);padding:16px}
 .metric .k{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(242,244,239,.45)}
 .metric .v{margin-top:8px;font-family:var(--display);font-size:clamp(26px,4vw,52px);line-height:.95;color:var(--signal)}
+.queue-tools{
+  margin-top:18px;
+  display:flex;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.queue-tools .hint{
+  font-family:var(--mono);
+  font-size:11px;
+  color:rgba(242,244,239,.62);
+}
 .queue {
   margin-top:28px;
   display:grid;
@@ -168,6 +180,21 @@ button.primary{background:var(--signal);color:#111510;border-color:transparent;f
   <article class="metric"><div class="k">Rejected</div><div class="v" id="m-rejected">0</div></article>
 </section>
 
+<section class="queue-tools">
+  <input id="queue-search" type="text" placeholder="Filter by note id or text" style="min-width:260px;">
+  <input id="queue-min-entities" type="number" min="0" step="1" placeholder="Min entities" style="width:150px;">
+  <select id="queue-sort" style="min-width:220px;">
+    <option value="risk_desc">Sort: Highest risk first</option>
+    <option value="risk_asc">Sort: Lowest risk first</option>
+    <option value="newest">Sort: Newest processed first</option>
+    <option value="oldest">Sort: Oldest processed first</option>
+    <option value="note_desc">Sort: Highest note id first</option>
+    <option value="note_asc">Sort: Lowest note id first</option>
+  </select>
+  <button id="clear-filters" type="button">Clear Filters</button>
+  <span class="hint" id="queue-visible-count"></span>
+</section>
+
 <div id="error-box"></div>
 <div id="queue-root" class="queue"></div>
 <div id="empty-root" class="empty" style="display:none;">No notes currently require manual review. Queue is clear.</div>
@@ -181,6 +208,15 @@ const adminTokenInput = document.getElementById('admin-token');
 const clearExistingInput = document.getElementById('clear-existing');
 const runBackfillBtn = document.getElementById('run-backfill');
 const backfillStatus = document.getElementById('backfill-status');
+const queueSearchInput = document.getElementById('queue-search');
+const queueMinEntitiesInput = document.getElementById('queue-min-entities');
+const queueSortInput = document.getElementById('queue-sort');
+const clearFiltersBtn = document.getElementById('clear-filters');
+const queueVisibleCount = document.getElementById('queue-visible-count');
+
+const EMPTY_QUEUE_MESSAGE = 'No notes currently require manual review. Queue is clear.';
+const FILTER_EMPTY_MESSAGE = 'No notes match the current filters.';
+let allQueueItems = [];
 
 function escapeHtml(text) {
   return String(text)
@@ -223,6 +259,62 @@ function setSummary(summary) {
   document.getElementById('m-approved').textContent = Number(byDecision.approved || 0).toLocaleString();
   document.getElementById('m-edited').textContent = Number(byDecision.edited || 0).toLocaleString();
   document.getElementById('m-rejected').textContent = Number(byDecision.rejected || 0).toLocaleString();
+}
+
+function toNum(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function toTime(value) {
+  const ts = Date.parse(String(value || ''));
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function setQueueCount(visible, total) {
+  queueVisibleCount.textContent = `Showing ${visible} of ${total}`;
+}
+
+function getQueueView(items) {
+  const term = String(queueSearchInput.value || '').trim().toLowerCase();
+  const minEntities = queueMinEntitiesInput.value === ''
+    ? null
+    : Math.max(0, parseInt(queueMinEntitiesInput.value, 10) || 0);
+  const sortMode = queueSortInput.value;
+
+  let next = items.slice();
+
+  if (term) {
+    next = next.filter((item) => {
+      const noteId = String(item.note_id || '').toLowerCase();
+      const text = String(item.masked_text || '').toLowerCase();
+      return noteId.includes(term) || text.includes(term);
+    });
+  }
+
+  if (minEntities !== null) {
+    next = next.filter((item) => toNum(item.entity_count) >= minEntities);
+  }
+
+  next.sort((a, b) => {
+    if (sortMode === 'risk_asc') return toNum(a.entity_count) - toNum(b.entity_count);
+    if (sortMode === 'newest') return toTime(b.processed_at) - toTime(a.processed_at);
+    if (sortMode === 'oldest') return toTime(a.processed_at) - toTime(b.processed_at);
+    if (sortMode === 'note_asc') return toNum(a.note_id) - toNum(b.note_id);
+    if (sortMode === 'note_desc') return toNum(b.note_id) - toNum(a.note_id);
+    return toNum(b.entity_count) - toNum(a.entity_count);
+  });
+
+  return next;
+}
+
+function refreshQueueView() {
+  const visibleItems = getQueueView(allQueueItems);
+  emptyRoot.textContent = allQueueItems.length && !visibleItems.length
+    ? FILTER_EMPTY_MESSAGE
+    : EMPTY_QUEUE_MESSAGE;
+  setQueueCount(visibleItems.length, allQueueItems.length);
+  renderQueue(visibleItems);
 }
 
 function renderQueue(items) {
@@ -314,16 +406,27 @@ async function refreshAll() {
       throw new Error(summaryPayload.error || 'Unable to load review summary');
     }
 
-    renderQueue(queuePayload.items || []);
+    allQueueItems = queuePayload.items || [];
+    refreshQueueView();
     setSummary(summaryPayload);
   } catch (err) {
-    renderQueue([]);
+    allQueueItems = [];
+    refreshQueueView();
     setSummary({ pending: 0, by_decision: {} });
     setError(err.message || 'Failed to refresh queue');
   }
 }
 
 document.getElementById('refresh').addEventListener('click', refreshAll);
+queueSearchInput.addEventListener('input', refreshQueueView);
+queueMinEntitiesInput.addEventListener('input', refreshQueueView);
+queueSortInput.addEventListener('change', refreshQueueView);
+clearFiltersBtn.addEventListener('click', () => {
+  queueSearchInput.value = '';
+  queueMinEntitiesInput.value = '';
+  queueSortInput.value = 'risk_desc';
+  refreshQueueView();
+});
 
 async function pollBackfill(jobId, adminToken, adminUser) {
   const maxAttempts = 120;
