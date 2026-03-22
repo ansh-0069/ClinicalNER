@@ -187,6 +187,151 @@ def _register_api_routes(app: Flask) -> None:
         """
       )
 
+  def _ensure_backfill_job_table() -> None:
+    with sqlite3.connect(app.config["DB_PATH"]) as conn:
+      conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS backfill_jobs (
+          job_id TEXT PRIMARY KEY,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          started_at TEXT,
+          finished_at TEXT,
+          processed_notes INTEGER NOT NULL DEFAULT 0,
+          total_notes INTEGER NOT NULL DEFAULT 0,
+          notes_with_phi INTEGER NOT NULL DEFAULT 0,
+          total_entities INTEGER NOT NULL DEFAULT 0,
+          cleared_previous_rows INTEGER NOT NULL DEFAULT 0,
+          progress_pct REAL NOT NULL DEFAULT 0,
+          clear_existing INTEGER NOT NULL DEFAULT 1,
+          job_limit INTEGER,
+          error TEXT
+        )
+        """
+      )
+      conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_backfill_jobs_created_at ON backfill_jobs(created_at DESC)"
+      )
+
+  def _row_to_backfill_job(row: sqlite3.Row | None) -> dict | None:
+    if row is None:
+      return None
+    return {
+      "job_id": row["job_id"],
+      "status": row["status"],
+      "created_at": row["created_at"],
+      "started_at": row["started_at"],
+      "finished_at": row["finished_at"],
+      "processed_notes": int(row["processed_notes"] or 0),
+      "total_notes": int(row["total_notes"] or 0),
+      "notes_with_phi": int(row["notes_with_phi"] or 0),
+      "total_entities": int(row["total_entities"] or 0),
+      "cleared_previous_rows": int(row["cleared_previous_rows"] or 0),
+      "progress_pct": float(row["progress_pct"] or 0.0),
+      "clear_existing": bool(int(row["clear_existing"] or 0)),
+      "limit": int(row["job_limit"]) if row["job_limit"] is not None else None,
+      "error": row["error"],
+    }
+
+  def _create_backfill_job(clear_existing: bool, limit: int | None) -> tuple[dict | None, dict | None]:
+    _ensure_backfill_job_table()
+    job_id = uuid.uuid4().hex
+    created_at = _utc_now()
+
+    with sqlite3.connect(app.config["DB_PATH"], timeout=30) as conn:
+      conn.row_factory = sqlite3.Row
+      conn.execute("BEGIN IMMEDIATE")
+
+      active_row = conn.execute(
+        """
+        SELECT * FROM backfill_jobs
+        WHERE status IN ('queued', 'running')
+        ORDER BY created_at DESC
+        LIMIT 1
+        """
+      ).fetchone()
+
+      if active_row:
+        conn.rollback()
+        return None, _row_to_backfill_job(active_row)
+
+      conn.execute(
+        """
+        INSERT INTO backfill_jobs (
+          job_id, status, created_at, started_at, finished_at,
+          processed_notes, total_notes, notes_with_phi, total_entities,
+          cleared_previous_rows, progress_pct, clear_existing, job_limit, error
+        ) VALUES (?, 'queued', ?, NULL, NULL, 0, 0, 0, 0, 0, 0.0, ?, ?, NULL)
+        """,
+        (job_id, created_at, int(bool(clear_existing)), limit),
+      )
+
+      row = conn.execute(
+        "SELECT * FROM backfill_jobs WHERE job_id = ?",
+        (job_id,),
+      ).fetchone()
+
+    return _row_to_backfill_job(row), None
+
+  def _update_backfill_job(job_id: str, **fields) -> None:
+    if not fields:
+      return
+
+    db_field_map = {
+      "status": "status",
+      "started_at": "started_at",
+      "finished_at": "finished_at",
+      "processed_notes": "processed_notes",
+      "total_notes": "total_notes",
+      "notes_with_phi": "notes_with_phi",
+      "total_entities": "total_entities",
+      "cleared_previous_rows": "cleared_previous_rows",
+      "progress_pct": "progress_pct",
+      "clear_existing": "clear_existing",
+      "limit": "job_limit",
+      "error": "error",
+    }
+
+    assignments = []
+    values = []
+    for key, value in fields.items():
+      if key not in db_field_map:
+        continue
+      column = db_field_map[key]
+      if key == "clear_existing" and value is not None:
+        value = int(bool(value))
+      assignments.append(f"{column} = ?")
+      values.append(value)
+
+    if not assignments:
+      return
+
+    _ensure_backfill_job_table()
+    with sqlite3.connect(app.config["DB_PATH"]) as conn:
+      conn.execute(
+        f"UPDATE backfill_jobs SET {', '.join(assignments)} WHERE job_id = ?",
+        (*values, job_id),
+      )
+
+  def _get_backfill_job(job_id: str) -> dict | None:
+    _ensure_backfill_job_table()
+    with sqlite3.connect(app.config["DB_PATH"]) as conn:
+      conn.row_factory = sqlite3.Row
+      row = conn.execute(
+        "SELECT * FROM backfill_jobs WHERE job_id = ? LIMIT 1",
+        (job_id,),
+      ).fetchone()
+    return _row_to_backfill_job(row)
+
+  def _get_latest_backfill_job() -> dict | None:
+    _ensure_backfill_job_table()
+    with sqlite3.connect(app.config["DB_PATH"]) as conn:
+      conn.row_factory = sqlite3.Row
+      row = conn.execute(
+        "SELECT * FROM backfill_jobs ORDER BY created_at DESC LIMIT 1"
+      ).fetchone()
+    return _row_to_backfill_job(row)
+
   def _table_exists(table_name: str) -> bool:
     try:
       with sqlite3.connect(app.config["DB_PATH"]) as conn:
@@ -287,9 +432,17 @@ def _register_api_routes(app: Flask) -> None:
     lock: threading.Lock = app.config["BACKFILL_LOCK"]
 
     with lock:
-      job = jobs[job_id]
+      job = jobs.get(job_id, {"job_id": job_id})
       job["status"] = "running"
       job["started_at"] = _utc_now()
+      jobs[job_id] = job
+
+    _update_backfill_job(
+      job_id,
+      status="running",
+      started_at=job["started_at"],
+      error=None,
+    )
 
     try:
       deleted_rows = 0
@@ -309,6 +462,12 @@ def _register_api_routes(app: Flask) -> None:
       notes_df = loader.sql_query(sql)
       total_notes = int(len(notes_df))
       if notes_df.empty:
+        _update_backfill_job(
+          job_id,
+          status="failed",
+          error="No clinical_notes found to process",
+          finished_at=_utc_now(),
+        )
         with lock:
           job["status"] = "failed"
           job["error"] = "No clinical_notes found to process"
@@ -338,13 +497,34 @@ def _register_api_routes(app: Flask) -> None:
 
         processed += 1
         if processed % 10 == 0 or processed == total_notes:
+          progress_pct = round((processed / max(total_notes, 1)) * 100, 1)
+          _update_backfill_job(
+            job_id,
+            processed_notes=processed,
+            total_notes=total_notes,
+            total_entities=total_entities,
+            notes_with_phi=notes_with_phi,
+            progress_pct=progress_pct,
+          )
           with lock:
             job["processed_notes"] = processed
             job["total_notes"] = total_notes
             job["total_entities"] = total_entities
             job["notes_with_phi"] = notes_with_phi
-            job["progress_pct"] = round((processed / max(total_notes, 1)) * 100, 1)
+            job["progress_pct"] = progress_pct
 
+      finished_at = _utc_now()
+      _update_backfill_job(
+        job_id,
+        status="completed",
+        processed_notes=processed,
+        total_notes=total_notes,
+        notes_with_phi=notes_with_phi,
+        total_entities=total_entities,
+        cleared_previous_rows=deleted_rows,
+        progress_pct=100.0,
+        finished_at=finished_at,
+      )
       with lock:
         job["status"] = "completed"
         job["processed_notes"] = processed
@@ -353,7 +533,7 @@ def _register_api_routes(app: Flask) -> None:
         job["total_entities"] = total_entities
         job["cleared_previous_rows"] = deleted_rows
         job["progress_pct"] = 100.0
-        job["finished_at"] = _utc_now()
+        job["finished_at"] = finished_at
 
       audit.log(
         EventType.PIPELINE_COMPLETE,
@@ -367,10 +547,18 @@ def _register_api_routes(app: Flask) -> None:
         },
       )
     except Exception as e:
+      finished_at = _utc_now()
+      _update_backfill_job(
+        job_id,
+        status="failed",
+        error=str(e),
+        finished_at=finished_at,
+      )
       with lock:
+        jobs.setdefault(job_id, {"job_id": job_id})
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["error"] = str(e)
-        jobs[job_id]["finished_at"] = _utc_now()
+        jobs[job_id]["finished_at"] = finished_at
       audit.log(EventType.ERROR, description=f"Admin backfill failed [{job_id}]: {e}")
       logger.error("admin_backfill job failed [%s]: %s", job_id, e)
     finally:
@@ -825,49 +1013,37 @@ def _register_api_routes(app: Flask) -> None:
       if payload_error:
         return jsonify(payload_error[0]), payload_error[1]
 
+      job, active_job = _create_backfill_job(
+        clear_existing=payload["clear_existing"],
+        limit=payload["limit"],
+      )
+      if active_job:
+        return jsonify({
+          "error": "A backfill job is already running",
+          "status": 409,
+          "job": active_job,
+        }), 409
+      if not job:
+        return jsonify({"error": "Failed to create backfill job", "status": 500}), 500
+
       jobs: dict = app.config["BACKFILL_JOBS"]
       lock: threading.Lock = app.config["BACKFILL_LOCK"]
-
       with lock:
-        active_job_id = app.config.get("BACKFILL_ACTIVE_JOB_ID")
-        if active_job_id and jobs.get(active_job_id, {}).get("status") in {"queued", "running"}:
-          return jsonify({
-            "error": "A backfill job is already running",
-            "status": 409,
-            "job": jobs[active_job_id],
-          }), 409
-
-        job_id = uuid.uuid4().hex
-        jobs[job_id] = {
-          "job_id": job_id,
-          "status": "queued",
-          "created_at": _utc_now(),
-          "started_at": None,
-          "finished_at": None,
-          "processed_notes": 0,
-          "total_notes": 0,
-          "notes_with_phi": 0,
-          "total_entities": 0,
-          "cleared_previous_rows": 0,
-          "progress_pct": 0.0,
-          "clear_existing": payload["clear_existing"],
-          "limit": payload["limit"],
-          "error": None,
-        }
-        app.config["BACKFILL_ACTIVE_JOB_ID"] = job_id
+        jobs[job["job_id"]] = dict(job)
+        app.config["BACKFILL_ACTIVE_JOB_ID"] = job["job_id"]
 
       worker = threading.Thread(
         target=_run_backfill_job,
-        args=(job_id, payload["clear_existing"], payload["limit"]),
+        args=(job["job_id"], payload["clear_existing"], payload["limit"]),
         daemon=True,
-        name=f"backfill-{job_id[:8]}",
+        name=f"backfill-{job['job_id'][:8]}",
       )
       worker.start()
 
       return jsonify({
         "status": 202,
         "message": "Backfill job queued",
-        "job": jobs[job_id],
+        "job": job,
       }), 202
 
   @app.route("/api/admin/backfill-status/<job_id>", methods=["GET"])
@@ -881,8 +1057,10 @@ def _register_api_routes(app: Flask) -> None:
       if not ok:
           return jsonify(auth_error[0]), auth_error[1]
 
-      jobs: dict = app.config["BACKFILL_JOBS"]
-      job = jobs.get(job_id)
+      job = _get_backfill_job(job_id)
+      if not job:
+          jobs: dict = app.config["BACKFILL_JOBS"]
+          job = jobs.get(job_id)
       if not job:
           return jsonify({"error": "Backfill job not found", "status": 404}), 404
       return jsonify({"status": 200, "job": job}), 200
@@ -898,11 +1076,12 @@ def _register_api_routes(app: Flask) -> None:
       if not ok:
           return jsonify(auth_error[0]), auth_error[1]
 
-      jobs: dict = app.config["BACKFILL_JOBS"]
-      if not jobs:
-          return jsonify({"status": 200, "job": None}), 200
-
-      latest = max(jobs.values(), key=lambda j: j.get("created_at") or "")
+      latest = _get_latest_backfill_job()
+      if not latest:
+          jobs: dict = app.config["BACKFILL_JOBS"]
+          if not jobs:
+              return jsonify({"status": 200, "job": None}), 200
+          latest = max(jobs.values(), key=lambda j: j.get("created_at") or "")
       return jsonify({"status": 200, "job": latest}), 200
 
   @app.route("/api/predict-readmission", methods=["POST"])
