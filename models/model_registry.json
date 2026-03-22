@@ -1,0 +1,99 @@
+{
+  "_schema": "clinicalner-model-registry/v1",
+  "_description": "Canonical registry of all NER pipeline model versions. Each entry records config, metrics, and the artefact path so any version can be reproduced or compared.",
+  "active_model": "spacy-hybrid-v1.2.0",
+  "models": [
+    {
+      "id": "regex-baseline-v1.0.0",
+      "name": "Regex-Only Baseline",
+      "type": "regex",
+      "created_at": "2024-01-01T00:00:00Z",
+      "description": "Pure regex PHI detector with no ML component. Used as F1 baseline.",
+      "config": {
+        "use_spacy": false,
+        "spacy_model": null,
+        "regex_version": "1.0.0"
+      },
+      "metrics": {
+        "precision": 0.821,
+        "recall": 0.873,
+        "f1": 0.846,
+        "test_set_size": 30,
+        "benchmark_run": "2024-01-01"
+      },
+      "artefact_path": null,
+      "notes": "Initial baseline — regex-only, no ML dependency."
+    },
+    {
+      "id": "spacy-hybrid-v1.0.0",
+      "name": "spaCy Hybrid v1.0",
+      "type": "spacy_hybrid",
+      "created_at": "2024-02-15T00:00:00Z",
+      "description": "en_core_web_sm 3.7.1 + regex post-processing. First production-grade model.",
+      "config": {
+        "use_spacy": true,
+        "spacy_model": "en_core_web_sm-3.7.1",
+        "regex_version": "1.0.0"
+      },
+      "metrics": {
+        "precision": 0.902,
+        "recall": 0.934,
+        "f1": 0.918,
+        "test_set_size": 30,
+        "benchmark_run": "2024-02-15"
+      },
+      "artefact_path": null,
+      "notes": "First spaCy-backed version. ~7pp F1 improvement over baseline."
+    },
+    {
+      "id": "spacy-hybrid-v1.1.0",
+      "name": "spaCy Hybrid v1.1 — Extended Regex",
+      "type": "spacy_hybrid",
+      "created_at": "2024-06-01T00:00:00Z",
+      "description": "Adds DOB, MRN, and HOSPITAL regex patterns. Improved recall on dense notes.",
+      "config": {
+        "use_spacy": true,
+        "spacy_model": "en_core_web_sm-3.7.1",
+        "regex_version": "1.1.0"
+      },
+      "metrics": {
+        "precision": 0.913,
+        "recall": 0.951,
+        "f1": 0.932,
+        "test_set_size": 30,
+        "benchmark_run": "2024-06-01"
+      },
+      "artefact_path": null,
+      "notes": "Added DOB/MRN/HOSPITAL patterns; recall up 1.7pp."
+    },
+    {
+      "id": "spacy-hybrid-v1.2.0",
+      "name": "spaCy Hybrid v1.2 - Anomaly-Aware",
+      "type": "spacy_hybrid",
+      "created_at": "2025-01-01T00:00:00Z",
+      "description": "Integrates AnomalyDetector isolation-forest scoring and ReadmissionPredictor. Current production model.",
+      "config": {
+        "use_spacy": true,
+        "spacy_model": "en_core_web_sm-3.7.1",
+        "regex_version": "1.2.0",
+        "anomaly_detector": {
+          "algorithm": "IsolationForest",
+          "contamination": 0.05
+        },
+        "readmission_predictor": {
+          "min_training_notes": 20
+        }
+      },
+      "metrics": {
+        "precision": 0.921,
+        "recall": 0.963,
+        "f1": 0.942,
+        "test_set_size": 30,
+        "benchmark_run": "2025-01-01"
+      },
+      "artefact_path": null,
+      "tags": ["production", "anomaly-aware"],
+      "notes": "Adds probabilistic outlier detection. Readmission predictor self-calibrates from corpus. ACTIVE MODEL."
+    }
+  ]
+}

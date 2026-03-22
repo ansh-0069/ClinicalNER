@@ -215,6 +215,26 @@ class TestStats:
 
 
 # ═══════════════════════════════════════════════════════════════
+# Blueprint: /api/model-registry, /api/data-quality
+# ═══════════════════════════════════════════════════════════════
+
+class TestApiBlueprint:
+
+    def test_model_registry_returns_200(self, client):
+        r = client.get("/api/model-registry")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data.get("active_model_id") or data.get("models")
+
+    def test_data_quality_returns_200(self, client):
+        r = client.get("/api/data-quality")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert "completeness" in data
+        assert "accuracy" in data
+
+
+# ═══════════════════════════════════════════════════════════════
 # GET /dashboard
 # ═══════════════════════════════════════════════════════════════
 

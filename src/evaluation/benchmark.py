@@ -165,15 +165,15 @@ class ModelBenchmark:
 
     def print_report(self, results: list[BenchmarkResult]) -> None:
         """Pretty-print the comparison table."""
-        print(f"\n{'─'*82}")
+        print(f"\n{'-'*82}")
         print(
             f"{'Model':<28} {'Precision':>10} {'Recall':>10} "
             f"{'F1':>10} {'Latency':>13} {'Entities':>12}"
         )
-        print(f"{'─'*82}")
+        print(f"{'-'*82}")
         for r in results:
             print(r.summary_row)
-        print(f"{'─'*82}")
+        print(f"{'-'*82}")
 
         if len(results) >= 2:
             base = results[0]
@@ -187,11 +187,56 @@ class ModelBenchmark:
     def save_report(
         self, results: list[BenchmarkResult], path: str = "data/benchmark_results.json"
     ) -> None:
-        """Persist results to JSON for the Flask /api/stats endpoint."""
+        """
+        Persist results to JSON (envelope format) for CI gates and /api/data-quality.
+
+        Envelope includes top-level precision/recall/f1 for the **production** row
+        (spaCy hybrid when present), aligned with ``models/model_registry.json``.
+        Legacy array-only files are still readable by consumers that check
+        ``isinstance(data, list)``.
+        """
         Path(path).parent.mkdir(parents=True, exist_ok=True)
+        rows = [r.to_dict() for r in results]
+        primary = self._pick_primary_result(results)
+        envelope: dict = {
+            "schema_version": "benchmark/v2",
+            "run_timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "results": rows,
+        }
+        if primary is not None:
+            envelope["precision"] = primary.precision
+            envelope["recall"] = primary.recall
+            envelope["f1"] = primary.f1
+            envelope["f1_score"] = primary.f1
+            envelope["test_notes"] = primary.notes_tested
+            envelope["test_set_size"] = primary.notes_tested
+            envelope["primary_model_name"] = primary.model_name
+            envelope["p95_latency_ms"] = primary.latency_ms
+
+        reg_path = Path(__file__).resolve().parents[2] / "models" / "model_registry.json"
+        if reg_path.exists():
+            try:
+                reg = json.loads(reg_path.read_text(encoding="utf-8"))
+                aid = reg.get("active_model")
+                envelope["active_model_id"] = aid
+                active = next((m for m in reg.get("models", []) if m.get("id") == aid), None)
+                if active:
+                    envelope["active_model_name"] = active.get("name")
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning("Could not merge model registry into benchmark: %s", exc)
+
         with open(path, "w") as f:
-            json.dump([r.to_dict() for r in results], f, indent=2)
+            json.dump(envelope, f, indent=2)
         logger.info("Benchmark results saved → %s", path)
+
+    def _pick_primary_result(self, results: list[BenchmarkResult]) -> Optional[BenchmarkResult]:
+        """Prefer spaCy hybrid row for production metrics; else last row."""
+        if not results:
+            return None
+        for r in results:
+            if "spacy" in r.model_name.lower():
+                return r
+        return results[-1]
 
     def generate_readme_table(self, results: list[BenchmarkResult]) -> str:
         """Return a Markdown table — paste straight into README.md."""

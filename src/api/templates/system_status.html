@@ -173,9 +173,10 @@ async function checkStatus() {
   const startedAt = performance.now();
   let success = false;
   try {
-    const [health, stats] = await Promise.all([
+    const [health, stats, regRes] = await Promise.all([
       fetch('/health').then((r) => r.json()),
-      fetch('/api/stats').then((r) => r.json())
+      fetch('/api/stats').then((r) => r.json()),
+      fetch('/api/model-registry').then((r) => (r.ok ? r.json() : null))
     ]);
 
     success = true;
@@ -185,7 +186,12 @@ async function checkStatus() {
     document.getElementById('service-status').textContent = (health.status || '-').toUpperCase();
     animateCount('proc-count', stats.processed_count || 0);
     animateCount('audit-count', stats.total_audit_events || 0);
-    document.getElementById('t-model').textContent = health.app_version || 'unknown';
+    let modelLine = health.app_version || 'unknown';
+    if (regRes && regRes.active_model) {
+      const am = regRes.active_model;
+      modelLine = `${am.name || am.id} · F1 ${(am.metrics && am.metrics.f1) != null ? am.metrics.f1 : '—'}`;
+    }
+    document.getElementById('t-model').textContent = modelLine;
     document.getElementById('t-started').textContent = health.started_at || '-';
     document.getElementById('t-refresh').textContent = new Date().toISOString();
     document.getElementById('t-latency').textContent = `${latency} ms`;

@@ -16,7 +16,7 @@ from src.evaluation.benchmark import ModelBenchmark
 
 def main():
     print("\n" + "="*60)
-    print("  ClinicalNER — Model Benchmark")
+    print("  ClinicalNER - Model Benchmark")
     print("="*60)
 
     bm = ModelBenchmark()   # uses built-in 30-example annotated test set
@@ -28,15 +28,15 @@ def main():
     ]
 
     results = bm.run(configs)
-    bm.print_report(results)
     bm.save_report(results, "data/benchmark_results.json")
+    bm.print_report(results)
 
     print("  Markdown table for README.md:")
-    print("  " + "─"*50)
+    print("  " + "-"*50)
     print(bm.generate_readme_table(results))
 
     print("="*60)
-    print("  Results saved → data/benchmark_results.json")
+    print("  Results saved -> data/benchmark_results.json")
     print("="*60 + "\n")
 
 if __name__ == "__main__":

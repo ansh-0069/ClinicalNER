@@ -1,7 +1,7 @@
 # ClinicalNER — Clinical Trial De-Identification Pipeline
 
 ![CI](https://github.com/ansh-0069/ClinicalNER/actions/workflows/tests.yml/badge.svg)
-![Tests](https://img.shields.io/badge/tests-192%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-231%20passing-brightgreen)
 ![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen)
 ![Live](https://img.shields.io/badge/live-azure-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.11-blue)
@@ -122,9 +122,12 @@ pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 
 python run_phase1.py   # seed 500 synthetic notes
+python run_structured_demo.py   # optional: DM-style CSV -> subject_dm + listing export
 python run_phase4.py   # start Flask on :5000
 # open http://localhost:5000/
 ```
+
+**Documentation:** `docs/DATA_QUALITY_PLAN.md`, `docs/TRACEABILITY_MATRIX.md`, `docs/LISTING_DATA_GUIDE.md`, `docs/ML_GOVERNANCE.md`, `docs/COMPLIANCE.md`, `docs/CLINICAL_USE_CASES.md`. **CI:** `.github/workflows/tests.yml` (pytest on push/PR).
 
 ## Quick Start (Docker)
 
@@ -340,7 +343,7 @@ Model behavior:
 | Flask / Django             | 5 REST routes, consistent HTTP status codes                      |
 | Docker                     | Production Dockerfile, HEALTHCHECK, gunicorn                     |
 | Cloud deployment           | Docker-ready, gunicorn WSGI server                               |
-| Test coverage              | 192 tests, 90% coverage                                          |
+| Test coverage              | 231 tests, 90% coverage                                          |
 
 ---
 
@@ -407,8 +410,8 @@ high_risk = loader.sql_query(QUERY_CATALOG['high_risk_notes'])
 
 ## 📚 Documentation
 
-- **[CLINICAL_USE_CASES.md](CLINICAL_USE_CASES.md)** — 6 real-world use cases with ROI analysis
-- **[COMPLIANCE.md](COMPLIANCE.md)** — HIPAA, ICH E6, 21 CFR Part 11 compliance documentation
+- **[CLINICAL_USE_CASES.md](docs/CLINICAL_USE_CASES.md)** — 6 real-world use cases with ROI analysis
+- **[COMPLIANCE.md](docs/COMPLIANCE.md)** — HIPAA, ICH E6, 21 CFR Part 11 compliance documentation
 - **[STRUCTURE.md](STRUCTURE.md)** — Project architecture and file organization
 - **[AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md)** — Azure App Service + ACR deployment guide
 

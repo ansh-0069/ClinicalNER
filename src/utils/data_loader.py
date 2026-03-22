@@ -19,10 +19,13 @@ import logging
 import os
 import re
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+
+from src.utils.dq_vocab import load_specialty_vocab
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
@@ -246,6 +249,31 @@ class DataLoader:
         """
         with sqlite3.connect(self.db_path) as conn:
             return pd.read_sql_query(query, conn)
+
+    def quarantine_invalid_specialties(
+        self, df: pd.DataFrame
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Split rows whose ``medical_specialty`` is not in ``data/specialty_vocab.json``.
+
+        Quarantined rows are written under ``data/quarantine/`` as CSV (DQP §3.2).
+        """
+        root = self.db_path.resolve().parent.parent
+        vocab = load_specialty_vocab(root)
+        if not vocab or "medical_specialty" not in df.columns:
+            return df, pd.DataFrame()
+
+        ok_mask = df["medical_specialty"].astype(str).isin(vocab)
+        good = df[ok_mask].copy()
+        bad = df[~ok_mask].copy()
+        if not bad.empty:
+            qdir = root / "data" / "quarantine"
+            qdir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            path = qdir / f"quarantine_specialty_{ts}.csv"
+            bad.to_csv(path, index=False)
+            logger.warning("Quarantined %d rows → %s", len(bad), path)
+        return good, bad
 
     # ── Private helpers ───────────────────────────────────────────────────────
 

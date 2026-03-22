@@ -96,9 +96,13 @@ def test_save_report(mini_bm, tmp_path):
     mini_bm.save_report(results, path)
     with open(path) as f:
         data = json.load(f)
-    assert len(data) == 1
-    assert data[0]["model_name"] == "test"
-    assert "f1" in data[0]
+    rows = data["results"] if isinstance(data, dict) else data
+    assert len(rows) == 1
+    assert rows[0]["model_name"] == "test"
+    assert "f1" in rows[0]
+    if isinstance(data, dict):
+        assert data.get("schema_version") == "benchmark/v2"
+        assert "precision" in data
 
 def test_to_dict_has_all_fields(mini_bm):
     results = mini_bm.run([{"name": "test", "use_spacy": False}])

@@ -1,4 +1,4 @@
-﻿"""
+"""
 app.py
 â”€â”€â”€â”€â”€â”€
 Flask application factory for ClinicalNER.
@@ -117,6 +117,10 @@ def create_app(db_path: str | None = None) -> Flask:
     # â”€â”€ Register routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     _register_api_routes(app)
     _register_ui_routes(app)
+
+    from src.api.routes import api_bp
+
+    app.register_blueprint(api_bp)
 
     return app
 

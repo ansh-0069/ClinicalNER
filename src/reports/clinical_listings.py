@@ -403,3 +403,48 @@ Contact: Clinical Data Operations
         
         logger.info("SAS export saved → %s", output_file)
         return output_file
+
+    def generate_dm_free_text_listing(self) -> pd.DataFrame:
+        """
+        Join DM-like structured fields (``subject_dm``) to unstructured notes and processing.
+
+        Run ``python run_structured_demo.py`` after Phase 1 to create ``subject_dm``.
+        Output: CSV under ``data/reports/dm_note_listing_*.csv``.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cur = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='subject_dm'"
+            )
+            if cur.fetchone() is None:
+                logger.warning(
+                    "subject_dm not found — ingest demo: python run_structured_demo.py"
+                )
+                return pd.DataFrame()
+
+            df = pd.read_sql_query(
+                """
+                SELECT dm.studyid AS STUDYID,
+                       dm.usubjid AS USUBJID,
+                       dm.siteid AS SITEID,
+                       dm.note_id AS NOTE_ID,
+                       dm.age AS AGE,
+                       dm.sex AS SEX,
+                       dm.brthdtc AS BRTHDTC,
+                       cn.medical_specialty,
+                       cn.description,
+                       pn.entity_count,
+                       pn.processed_at
+                FROM subject_dm dm
+                JOIN clinical_notes cn ON dm.note_id = cn.note_id
+                LEFT JOIN processed_notes pn ON cn.note_id = pn.note_id
+                ORDER BY dm.usubjid
+                """,
+                conn,
+            )
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out = self.output_dir / f"dm_note_listing_{timestamp}.csv"
+        df.to_csv(out, index=False, encoding="utf-8")
+        logger.info("DM + free-text listing saved → %s", out)
+        return df

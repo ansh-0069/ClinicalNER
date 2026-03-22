@@ -1,0 +1,16 @@
+{
+  "_comment": "Controlled vocabulary for medical_specialty (DQP §3.2). Aligned with synthetic + MTSamples loader.",
+  "version": "1.0.0",
+  "allowed_specialties": [
+    "Cardiology",
+    "Orthopedic",
+    "Neurology",
+    "Gastroenterology",
+    "Pulmonology",
+    "Nephrology",
+    "Oncology",
+    "Psychiatry",
+    "Endocrinology",
+    "Surgery"
+  ]
+}

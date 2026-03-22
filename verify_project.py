@@ -51,8 +51,8 @@ def check_documentation():
     
     docs = [
         ("README.md", "Project README"),
-        ("CLINICAL_USE_CASES.md", "Clinical Use Cases"),
-        ("COMPLIANCE.md", "Regulatory Compliance"),
+        ("docs/CLINICAL_USE_CASES.md", "Clinical Use Cases"),
+        ("docs/COMPLIANCE.md", "Regulatory Compliance"),
         ("AWS_DEPLOYMENT.md", "AWS Deployment Guide"),
         ("JOB_APPLICATION_SUMMARY.md", "Job Application Summary"),
         ("PROJECT_COMPLETE.md", "Project Completion Guide"),

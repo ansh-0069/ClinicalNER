@@ -29,6 +29,7 @@ htmlcov/
 data/clinicalner.db
 data/raw/*.csv
 data/eda_outputs/
+data/quarantine/*.csv
 
 # ─── Environment variables ──────────────────────────────────────────────────
 .env
