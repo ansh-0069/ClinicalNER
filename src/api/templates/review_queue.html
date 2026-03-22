@@ -203,6 +203,20 @@ function setError(message) {
   errorBox.innerHTML = '<div class="error">' + escapeHtml(message) + '</div>';
 }
 
+async function parseApiResponse(res) {
+  const raw = await res.text();
+  let payload = null;
+  try {
+    payload = raw ? JSON.parse(raw) : {};
+  } catch (_) {
+    if (/<!doctype html|<html/i.test(raw)) {
+      throw new Error('Server returned HTML instead of JSON. Check deployment health and API logs.');
+    }
+    throw new Error(raw || 'Invalid API response');
+  }
+  return payload;
+}
+
 function setSummary(summary) {
   const byDecision = summary.by_decision || {};
   document.getElementById('m-pending').textContent = Number(summary.pending || 0).toLocaleString();
@@ -262,7 +276,7 @@ function renderQueue(items) {
             })
           });
 
-          const payload = await res.json();
+          const payload = await parseApiResponse(res);
           if (!res.ok || payload.error) {
             throw new Error(payload.error || 'Failed to submit decision');
           }
@@ -288,8 +302,10 @@ async function refreshAll() {
       fetch('/api/review/summary')
     ]);
 
-    const queuePayload = await queueRes.json();
-    const summaryPayload = await summaryRes.json();
+    const [queuePayload, summaryPayload] = await Promise.all([
+      parseApiResponse(queueRes),
+      parseApiResponse(summaryRes)
+    ]);
 
     if (!queueRes.ok || queuePayload.error) {
       throw new Error(queuePayload.error || 'Unable to load review queue');
@@ -322,7 +338,7 @@ async function pollBackfill(jobId, adminToken, adminUser) {
       }
     });
 
-    const payload = await res.json();
+    const payload = await parseApiResponse(res);
     if (!res.ok || payload.error) {
       throw new Error(payload.error || 'Unable to fetch backfill status');
     }
@@ -381,7 +397,7 @@ runBackfillBtn.addEventListener('click', async () => {
       })
     });
 
-    const payload = await res.json();
+    const payload = await parseApiResponse(res);
     if (!res.ok || payload.error) {
       throw new Error(payload.error || 'Unable to start backfill');
     }

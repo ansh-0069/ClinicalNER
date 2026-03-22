@@ -883,9 +883,9 @@ def _register_api_routes(app: Flask) -> None:
           )
         else:
           pending_df = None
-          decided_df = loader.sql_query(
-              "SELECT decision, COUNT(*) AS n FROM review_decisions GROUP BY decision"
-          )
+        decided_df = loader.sql_query(
+            "SELECT decision, COUNT(*) AS n FROM review_decisions GROUP BY decision"
+        )
       except Exception as e:
           return jsonify({"error": f"Unable to build review summary: {e}", "status": 500}), 500
 
