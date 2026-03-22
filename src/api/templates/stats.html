@@ -138,6 +138,18 @@ button.primary { background: var(--signal); color: #101410; border-color: transp
   background: rgba(10, 12, 13, 0.95);
   padding: 20px;
 }
+.surface.is-loading {
+  position: relative;
+  overflow: hidden;
+}
+.surface.is-loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(200,255,69,0.12), transparent);
+  transform: translateX(-100%);
+  animation: shimmer 1.4s infinite;
+}
 pre {
   font-family: var(--mono);
   font-size: 12px;
@@ -154,6 +166,9 @@ pre {
   padding: 12px;
   font-family: var(--mono);
   font-size: 11px;
+}
+@keyframes shimmer {
+  to { transform: translateX(100%); }
 }
 .dock {
   position: fixed;
@@ -189,6 +204,7 @@ pre {
 </style>
 </head>
 <body>
+{% include "_ops_shell.html" %}
 <section class="hero animate-up">
   <div class="eyebrow">Stats Endpoint Observatory</div>
   <h1>Raw payload,<br>premium surface.</h1>
@@ -337,6 +353,9 @@ function setupStoryPin() {
 }
 
 async function loadStats() {
+  const surface = document.querySelector('.surface');
+  surface.classList.add('is-loading');
+  document.getElementById('json-output').textContent = 'Loading statistics...';
   document.getElementById('error-box').innerHTML = '';
   try {
     const res = await fetch('/api/stats');
@@ -369,6 +388,8 @@ async function loadStats() {
   } catch (e) {
     document.getElementById('json-output').textContent = 'Error loading data';
     document.getElementById('error-box').innerHTML = `<div class="error">Failed to load statistics: ${e.message}</div>`;
+  } finally {
+    surface.classList.remove('is-loading');
   }
 }
 

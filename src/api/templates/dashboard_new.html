@@ -115,7 +115,7 @@ body {
 .stat-band {
   margin: 0 5vw;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 1px;
   background: var(--line);
 }
@@ -521,6 +521,7 @@ textarea:focus {
 </style>
 </head>
 <body>
+{% include "_ops_shell.html" %}
 <div class="noise-layer" aria-hidden="true"></div>
 
 <div class="shell">
@@ -552,6 +553,11 @@ textarea:focus {
       <div class="metric-value" id="metric-audit">0</div>
       <div class="metric-label">Audit Events</div>
       <div class="metric-meta">Traceability depth</div>
+    </article>
+    <article class="metric animate-up">
+      <div class="metric-value" id="metric-risk">0</div>
+      <div class="metric-label">At-Risk Notes</div>
+      <div class="metric-meta">High PHI density triage queue</div>
     </article>
   </section>
 
@@ -678,7 +684,10 @@ const knownTopKeys = new Set([
   "specialty",
   "phi_by_specialty",
   "audit_summary",
-  "total_audit_events"
+  "total_audit_events",
+  "avg_confidence",
+  "low_confidence_count",
+  "high_risk_count"
 ]);
 
 const stepNum = document.getElementById("orb-step-num");
@@ -873,6 +882,7 @@ function hydrateStats(stats) {
   animateCount(document.getElementById("metric-processed"), stats.processed_count || 0);
   animateCount(document.getElementById("metric-entities"), entityTotals);
   animateCount(document.getElementById("metric-audit"), stats.total_audit_events || 0);
+  animateCount(document.getElementById("metric-risk"), stats.high_risk_count || 0);
 
   renderMatrix(stats || {});
 }

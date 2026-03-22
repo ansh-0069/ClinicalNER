@@ -87,6 +87,7 @@ def create_app(db_path: str | None = None) -> Flask:
     app.config["BACKFILL_ACTIVE_JOB_ID"] = None
     app.config["RATE_LIMIT_BUCKETS"] = defaultdict(deque)
     app.config["RATE_LIMIT_LOCK"] = threading.Lock()
+    app.config["APP_STARTED_AT"] = datetime.now(timezone.utc).isoformat()
 
     @app.before_request
     def _attach_request_context() -> None:
@@ -167,6 +168,21 @@ def _register_api_routes(app: Flask) -> None:
 
       q.append(now)
     return True, None
+
+  def _ensure_review_table(loader: DataLoader) -> None:
+    with sqlite3.connect(app.config["DB_PATH"]) as conn:
+      conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS review_decisions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          note_id INTEGER NOT NULL,
+          decision TEXT NOT NULL,
+          reviewer TEXT,
+          comments TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+      )
 
   def _auth_admin_token() -> tuple[bool, str, tuple[dict, int] | None]:
     configured_token = os.getenv("ADMIN_BACKFILL_TOKEN", "").strip()
@@ -313,7 +329,12 @@ def _register_api_routes(app: Flask) -> None:
   @app.route("/health")
   def health():
       """Liveness probe â€” Docker HEALTHCHECK and cloud load balancers call this."""
-      return jsonify({"status": "ok", "service": "ClinicalNER"})
+      return jsonify({
+        "status": "ok",
+        "service": "ClinicalNER",
+        "app_version": os.getenv("APP_VERSION", "unknown"),
+        "started_at": app.config.get("APP_STARTED_AT"),
+      })
 
   @app.route("/api/deidentify", methods=["POST"])
   def deidentify():
@@ -485,6 +506,32 @@ def _register_api_routes(app: Flask) -> None:
           # Audit summary
           audit_summary = audit.get_summary().to_dict(orient="records")
 
+          # Risk and confidence telemetry for UI triage.
+          low_confidence_count = 0
+          high_risk_count = 0
+          avg_confidence = 0.0
+
+          try:
+              risk_df = loader.sql_query(
+                  "SELECT entity_count FROM processed_notes WHERE entity_count IS NOT NULL"
+              )
+              if not risk_df.empty:
+                  high_risk_count = int((risk_df["entity_count"].astype(float) >= 8).sum())
+          except Exception:
+              pass
+
+          # avg_confidence is optional depending on DB migration state.
+          try:
+              conf_df = loader.sql_query(
+                  "SELECT avg_confidence FROM processed_notes WHERE avg_confidence IS NOT NULL"
+              )
+              if not conf_df.empty:
+                  conf_series = conf_df["avg_confidence"].astype(float)
+                  avg_confidence = float(round(conf_series.mean(), 4))
+                  low_confidence_count = int((conf_series < 0.70).sum())
+          except Exception:
+              pass
+
           return jsonify({
               "note_count":       int(note_count),
               "processed_count":  int(processed_count),
@@ -493,11 +540,193 @@ def _register_api_routes(app: Flask) -> None:
               "phi_by_specialty": phi_by_spec,
               "audit_summary":    audit_summary,
               "total_audit_events": audit.total_events(),
+              "avg_confidence":   avg_confidence,
+              "low_confidence_count": low_confidence_count,
+              "high_risk_count":  high_risk_count,
           }), 200
 
       except Exception as e:
           logger.error("stats error: %s", e)
           return jsonify({"error": str(e), "status": 500}), 500
+
+  @app.route("/api/review/queue", methods=["GET"])
+  def review_queue():
+      """Return high-risk processed notes pending manual review."""
+      loader: DataLoader = app.config["LOADER"]
+      _ensure_review_table(loader)
+
+      limit_raw = request.args.get("limit", "50")
+      try:
+          limit = max(1, min(int(limit_raw), 200))
+      except Exception:
+          limit = 50
+
+      try:
+          rows = loader.sql_query(
+              f"""
+              SELECT
+                pn.note_id,
+                pn.masked_text,
+                pn.entity_count,
+                pn.processed_at
+              FROM processed_notes pn
+              LEFT JOIN review_decisions rd ON rd.note_id = pn.note_id
+              WHERE pn.entity_count >= 8
+                AND rd.note_id IS NULL
+              ORDER BY pn.entity_count DESC, pn.processed_at DESC
+              LIMIT {limit}
+              """
+          )
+      except Exception as e:
+          return jsonify({"error": f"Unable to load review queue: {e}", "status": 500}), 500
+
+      return jsonify({
+          "status": 200,
+          "count": int(len(rows)),
+          "items": rows.to_dict(orient="records"),
+      }), 200
+
+  @app.route("/api/review/decision", methods=["POST"])
+  def review_decision():
+      """Submit a manual review decision for a note."""
+      loader: DataLoader = app.config["LOADER"]
+      _ensure_review_table(loader)
+
+      if not request.is_json:
+          return jsonify({"error": "Request must be JSON", "status": 400}), 400
+
+      payload = request.get_json(silent=True) or {}
+      note_id = payload.get("note_id")
+      decision = str(payload.get("decision", "")).strip().lower()
+      reviewer = str(payload.get("reviewer", "")).strip() or "anonymous"
+      comments = str(payload.get("comments", "")).strip()
+
+      if not note_id:
+          return jsonify({"error": "Field 'note_id' is required", "status": 400}), 400
+      if decision not in {"approved", "edited", "rejected"}:
+          return jsonify({"error": "Field 'decision' must be approved|edited|rejected", "status": 400}), 400
+
+      try:
+          with sqlite3.connect(app.config["DB_PATH"]) as conn:
+              conn.execute(
+                  "INSERT INTO review_decisions (note_id, decision, reviewer, comments) VALUES (?, ?, ?, ?)",
+                  (int(note_id), decision, reviewer, comments),
+              )
+      except Exception as e:
+          return jsonify({"error": f"Unable to save review decision: {e}", "status": 500}), 500
+
+      return jsonify({"status": 201, "message": "Review decision recorded"}), 201
+
+  @app.route("/api/review/summary", methods=["GET"])
+  def review_summary():
+      """Aggregate review queue and decisions for dashboard cards."""
+      loader: DataLoader = app.config["LOADER"]
+      _ensure_review_table(loader)
+
+      try:
+          pending_df = loader.sql_query(
+              """
+              SELECT COUNT(*) AS n
+              FROM processed_notes pn
+              LEFT JOIN review_decisions rd ON rd.note_id = pn.note_id
+              WHERE pn.entity_count >= 8 AND rd.note_id IS NULL
+              """
+          )
+          decided_df = loader.sql_query(
+              "SELECT decision, COUNT(*) AS n FROM review_decisions GROUP BY decision"
+          )
+      except Exception as e:
+          return jsonify({"error": f"Unable to build review summary: {e}", "status": 500}), 500
+
+      by_decision = {r["decision"]: int(r["n"]) for _, r in decided_df.iterrows()} if not decided_df.empty else {}
+      return jsonify({
+          "status": 200,
+          "pending": int(pending_df.iloc[0]["n"] if not pending_df.empty else 0),
+          "by_decision": by_decision,
+      }), 200
+
+  @app.route("/api/drift/summary", methods=["GET"])
+  def drift_summary():
+      """Simple drift monitor comparing recent vs baseline processed-note windows."""
+      loader: DataLoader = app.config["LOADER"]
+      window = 100
+
+      try:
+          recent = loader.sql_query(
+              f"SELECT entity_count FROM processed_notes ORDER BY processed_at DESC LIMIT {window}"
+          )
+          baseline = loader.sql_query(
+              f"SELECT entity_count FROM processed_notes ORDER BY processed_at DESC LIMIT {window} OFFSET {window}"
+          )
+      except Exception as e:
+          return jsonify({"error": f"Unable to compute drift: {e}", "status": 500}), 500
+
+      if recent.empty or baseline.empty:
+          return jsonify({
+              "status": 200,
+              "message": "Insufficient processed notes for drift analysis",
+              "window": window,
+              "drift_pct": 0.0,
+              "drift_state": "insufficient-data",
+          }), 200
+
+      recent_avg = float(recent["entity_count"].astype(float).mean())
+      baseline_avg = float(baseline["entity_count"].astype(float).mean())
+      drift_pct = ((recent_avg - baseline_avg) / max(baseline_avg, 1e-9)) * 100
+
+      if abs(drift_pct) >= 20:
+          state = "high"
+      elif abs(drift_pct) >= 10:
+          state = "medium"
+      else:
+          state = "normal"
+
+      return jsonify({
+          "status": 200,
+          "window": window,
+          "recent_avg_entities": round(recent_avg, 3),
+          "baseline_avg_entities": round(baseline_avg, 3),
+          "drift_pct": round(drift_pct, 3),
+          "drift_state": state,
+      }), 200
+
+  @app.route("/api/export/compliance-pack", methods=["GET"])
+  def export_compliance_pack():
+      """One-shot JSON compliance export bundle for sponsor/CRO handoff."""
+      loader: DataLoader = app.config["LOADER"]
+      audit: AuditLogger = app.config["AUDIT"]
+
+      report = _build_report_summary_payload(loader)
+
+      _ensure_review_table(loader)
+      try:
+          pending_df = loader.sql_query(
+              """
+              SELECT COUNT(*) AS n
+              FROM processed_notes pn
+              LEFT JOIN review_decisions rd ON rd.note_id = pn.note_id
+              WHERE pn.entity_count >= 8 AND rd.note_id IS NULL
+              """
+          )
+          decided_df = loader.sql_query(
+              "SELECT decision, COUNT(*) AS n FROM review_decisions GROUP BY decision"
+          )
+          review = {
+              "pending": int(pending_df.iloc[0]["n"] if not pending_df.empty else 0),
+              "by_decision": {r["decision"]: int(r["n"]) for _, r in decided_df.iterrows()} if not decided_df.empty else {},
+          }
+      except Exception:
+          review = {"pending": 0, "by_decision": {}}
+
+      payload = {
+          "generated_at": datetime.now(timezone.utc).isoformat(),
+          "compliance_frameworks": ["HIPAA Safe Harbor", "ICH E6 (R2)", "21 CFR Part 11 readiness"],
+          "report_summary": report,
+          "audit_total_events": int(audit.total_events()),
+          "audit_summary": audit.get_summary().to_dict(orient="records"),
+          "review_summary": review,
+      }
+      return jsonify(payload), 200
 
   @app.route("/api/admin/backfill-processed", methods=["POST"])
   def admin_backfill_processed():
@@ -730,7 +959,7 @@ def _register_ui_routes(app: Flask) -> None:
   @app.route("/")
   def home():
     """Primary frontend landing page."""
-    return render_template("dashboard_new.html")
+    return render_template("dashboard_new.html", active_page="dashboard")
 
   @app.route("/dashboard")
   def dashboard():
@@ -738,24 +967,29 @@ def _register_ui_routes(app: Flask) -> None:
     Live EDA dashboard â€” renders stats as interactive charts.
     Uses Chart.js loaded from CDN, data fetched from /api/stats.
     """
-    return render_template("dashboard_new.html")
+    return render_template("dashboard_new.html", active_page="dashboard")
 
   @app.route("/stats")
   def stats_page():
     """
     Stats page â€” displays JSON data in a readable format.
     """
-    return render_template("stats.html")
+    return render_template("stats.html", active_page="stats")
 
   @app.route("/system-status")
   def system_status():
     """Visual system status page."""
-    return render_template("system_status.html")
+    return render_template("system_status.html", active_page="status")
 
   @app.route("/api-explorer")
   def api_explorer():
     """Interactive API explorer page."""
-    return render_template("api_explorer.html")
+    return render_template("api_explorer.html", active_page="api")
+
+  @app.route("/review-queue")
+  def review_queue_page():
+    """Human-in-the-loop review queue page for high-risk notes."""
+    return render_template("review_queue.html", active_page="review_queue")
 
   @app.route("/report/<int:note_id>")
   def report(note_id: int):
@@ -796,6 +1030,7 @@ def _register_ui_routes(app: Flask) -> None:
         orig_text=orig_text,
         proc_text=proc_text,
         entity_count=entity_count,
+        active_page="report",
       )
     except Exception as e:
       return f"<h3>Error: {e}</h3>", 500
@@ -874,7 +1109,7 @@ def _register_ui_routes(app: Flask) -> None:
     if "error" in payload:
       return f"<h3>Error: {payload['error']}</h3>", 500
 
-    return render_template("report_summary.html", report=payload)
+    return render_template("report_summary.html", report=payload, active_page="report")
 
 
 # â”€â”€ HTML Templates â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

@@ -30,8 +30,15 @@ body{font-family:var(--sans);background:radial-gradient(1200px 700px at 85% -10%
 .diff{margin-top:28px;display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line)}
 .panel{background:rgba(10,12,13,.95);padding:16px}
 .label{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(242,244,239,.45);margin-bottom:10px}
+.entity-toolbar{margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.chip{border:1px solid var(--line);background:transparent;color:rgba(242,244,239,.86);font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:6px 10px;cursor:pointer}
+.chip.is-active,.chip:hover{border-color:rgba(200,255,69,.48);background:var(--soft);color:var(--paper)}
+.jump-btn{border:1px solid var(--line);background:transparent;color:var(--paper);font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:7px 10px;cursor:pointer}
+.jump-btn:hover{border-color:rgba(200,255,69,.48);background:var(--soft)}
 pre{font-family:var(--mono);font-size:12px;line-height:1.75;white-space:pre-wrap;word-break:break-word;color:rgba(242,244,239,.9);max-height:62vh;overflow:auto;border:1px solid var(--line);background:rgba(15,18,19,.9);padding:12px}
 .mask{display:inline-block;border:1px solid rgba(200,255,69,.35);background:rgba(200,255,69,.15);color:var(--signal);padding:1px 6px;border-radius:2px}
+.mask.is-hidden{opacity:.2;filter:grayscale(1)}
+.mask.is-focused{outline:2px solid rgba(200,255,69,.75);background:rgba(200,255,69,.26)}
 .dock{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:8px;padding:10px;border:1px solid var(--line);background:rgba(8,10,11,.84);backdrop-filter:blur(14px)}
 .dock a{color:rgba(242,244,239,.64);text-decoration:none;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;border:1px solid transparent;padding:9px 12px}
 .dock a:hover{color:var(--paper);border-color:rgba(200,255,69,.42);background:var(--soft)}
@@ -41,6 +48,7 @@ pre{font-family:var(--mono);font-size:12px;line-height:1.75;white-space:pre-wrap
 </style>
 </head>
 <body>
+{% include "_ops_shell.html" %}
 <section class="hero animate-up">
   <div class="eyebrow">De-identification Diff Report</div>
   <h1>Note {{ note_id }}</h1>
@@ -72,6 +80,11 @@ comparison.</h3><p>This cinematic diff is designed for both compliance storytell
   </article>
   <article class="panel animate-up">
     <div class="label">De-identified Output</div>
+    <div class="entity-toolbar">
+      <div id="entity-chips"></div>
+      <button class="jump-btn" id="jump-prev" type="button">Prev Match</button>
+      <button class="jump-btn" id="jump-next" type="button">Next Match</button>
+    </div>
     <pre id="masked-preview">{{ proc_text }}</pre>
   </article>
 </section>
@@ -150,7 +163,64 @@ gsap.utils.toArray('.animate-up').forEach((el) => {
 });
 
 const preview = document.getElementById('masked-preview');
-preview.innerHTML = preview.textContent.replace(/\[([A-Z_]+)\]/g, (m) => `<span class="mask">${m}</span>`);
+const chipsRoot = document.getElementById('entity-chips');
+const prevBtn = document.getElementById('jump-prev');
+const nextBtn = document.getElementById('jump-next');
+
+preview.innerHTML = preview.textContent.replace(/\[([A-Z_]+)\]/g, (_m, label) => `<span class="mask" data-label="${label}">[${label}]</span>`);
+
+const masks = Array.from(preview.querySelectorAll('.mask'));
+const labels = Array.from(new Set(masks.map((el) => el.dataset.label))).sort();
+
+let activeLabel = 'ALL';
+let focusIdx = -1;
+
+function filteredMasks() {
+  if (activeLabel === 'ALL') return masks;
+  return masks.filter((m) => m.dataset.label === activeLabel);
+}
+
+function renderChips() {
+  const all = ['ALL', ...labels];
+  chipsRoot.innerHTML = all
+    .map((label) => `<button class="chip ${label === activeLabel ? 'is-active' : ''}" data-chip="${label}" type="button">${label}</button>`)
+    .join('');
+
+  chipsRoot.querySelectorAll('[data-chip]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      activeLabel = btn.dataset.chip || 'ALL';
+      focusIdx = -1;
+      applyFilter();
+      renderChips();
+    });
+  });
+}
+
+function applyFilter() {
+  masks.forEach((mask) => {
+    const show = activeLabel === 'ALL' || mask.dataset.label === activeLabel;
+    mask.classList.toggle('is-hidden', !show);
+    mask.classList.remove('is-focused');
+  });
+}
+
+function jump(step) {
+  const current = filteredMasks();
+  if (!current.length) return;
+
+  focusIdx = (focusIdx + step + current.length) % current.length;
+  masks.forEach((m) => m.classList.remove('is-focused'));
+  const target = current[focusIdx];
+  target.classList.add('is-focused');
+  target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+}
+
+prevBtn.addEventListener('click', () => jump(-1));
+nextBtn.addEventListener('click', () => jump(1));
+
+renderChips();
+applyFilter();
+
 setupHeroSequence();
 setupStoryPin();
 setupAmbientSignature();

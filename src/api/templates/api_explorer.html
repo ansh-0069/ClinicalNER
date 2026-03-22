@@ -32,6 +32,7 @@ textarea{min-height:180px;resize:vertical;line-height:1.7}
 button{border:1px solid var(--line);background:transparent;color:var(--paper);font-family:var(--mono);font-size:10px;letter-spacing:.13em;text-transform:uppercase;padding:10px 14px;cursor:pointer}
 button:hover{border-color:rgba(200,255,69,.5);background:var(--soft)}
 button.primary{background:var(--signal);color:#101410;border-color:transparent;font-weight:700}
+button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible{outline:2px solid rgba(200,255,69,.75);outline-offset:2px}
 .actions{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
 pre{font-family:var(--mono);font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-word;color:rgba(242,244,239,.92)}
 .routes{margin-top:24px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line)}
@@ -46,6 +47,7 @@ pre{font-family:var(--mono);font-size:12px;line-height:1.7;white-space:pre-wrap;
 </style>
 </head>
 <body>
+{% include "_ops_shell.html" %}
 <section class="hero animate-up">
   <div class="eyebrow">Interactive Runtime Console</div>
   <h1>API Explorer</h1>
@@ -230,6 +232,13 @@ document.getElementById('sample-post').addEventListener('click', () => {
   endpointEl.value = '/api/deidentify';
   headersEl.value = JSON.stringify({ "Content-Type": "application/json" }, null, 2);
   bodyEl.value = JSON.stringify({ text: 'Patient Jane Roe DOB 07/11/1982 Phone 212-555-2100 MRN567890', save: false }, null, 2);
+});
+
+document.addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+    event.preventDefault();
+    sendRequest();
+  }
 });
 
 setupHeroSequence();

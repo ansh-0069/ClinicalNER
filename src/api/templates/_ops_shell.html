@@ -1,0 +1,186 @@
+<style>
+.ops-shell-topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px 0 84px;
+  background: rgba(6, 7, 8, 0.86);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(242, 244, 239, 0.12);
+  z-index: 70;
+}
+
+.ops-shell-brand {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(242, 244, 239, 0.82);
+}
+
+.ops-shell-kpis {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ops-shell-kpi {
+  border: 1px solid rgba(242, 244, 239, 0.14);
+  background: rgba(11, 13, 14, 0.86);
+  color: rgba(242, 244, 239, 0.88);
+  padding: 6px 10px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ops-shell-kpi strong {
+  color: #c8ff45;
+  margin-left: 6px;
+}
+
+.ops-shell-sidebar {
+  position: fixed;
+  top: 56px;
+  left: 0;
+  bottom: 0;
+  width: 64px;
+  border-right: 1px solid rgba(242, 244, 239, 0.12);
+  background: rgba(7, 9, 10, 0.86);
+  backdrop-filter: blur(10px);
+  z-index: 65;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 8px;
+}
+
+.ops-shell-link {
+  width: 100%;
+  border: 1px solid transparent;
+  text-align: center;
+  text-decoration: none;
+  color: rgba(242, 244, 239, 0.58);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 10px 6px;
+}
+
+.ops-shell-link:hover,
+.ops-shell-link.is-active {
+  color: rgba(242, 244, 239, 0.95);
+  border-color: rgba(200, 255, 69, 0.42);
+  background: rgba(200, 255, 69, 0.12);
+}
+
+.ops-shell-link:focus-visible {
+  outline: 2px solid rgba(200, 255, 69, 0.75);
+  outline-offset: 2px;
+}
+
+body {
+  padding-left: 74px;
+  padding-top: 70px;
+}
+
+.dock {
+  display: none !important;
+}
+
+@media (max-width: 900px) {
+  .ops-shell-topbar {
+    padding-left: 14px;
+    height: auto;
+    min-height: 56px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .ops-shell-sidebar {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: auto;
+    height: 58px;
+    border-right: none;
+    border-top: 1px solid rgba(242, 244, 239, 0.12);
+    flex-direction: row;
+    justify-content: space-around;
+    padding: 8px;
+  }
+
+  .ops-shell-link {
+    width: auto;
+    font-size: 8px;
+    padding: 8px 6px;
+  }
+
+  body {
+    padding-left: 0;
+    padding-top: 88px;
+    padding-bottom: 96px;
+  }
+}
+</style>
+
+<header class="ops-shell-topbar">
+  <div class="ops-shell-brand">ClinicalNER Ops Console</div>
+  <div class="ops-shell-kpis">
+    <span class="ops-shell-kpi">Health <strong id="ops-health">...</strong></span>
+    <span class="ops-shell-kpi">Notes <strong id="ops-notes">0</strong></span>
+    <span class="ops-shell-kpi">Processed <strong id="ops-processed">0</strong></span>
+    <span class="ops-shell-kpi">Audit <strong id="ops-audit">0</strong></span>
+  </div>
+</header>
+
+<aside class="ops-shell-sidebar">
+  <a class="ops-shell-link {% if active_page == 'dashboard' %}is-active{% endif %}" href="/dashboard">Dash</a>
+  <a class="ops-shell-link {% if active_page == 'stats' %}is-active{% endif %}" href="/stats">Stats</a>
+  <a class="ops-shell-link {% if active_page == 'review_queue' %}is-active{% endif %}" href="/review-queue">Queue</a>
+  <a class="ops-shell-link {% if active_page == 'api' %}is-active{% endif %}" href="/api-explorer">API</a>
+  <a class="ops-shell-link {% if active_page == 'report' %}is-active{% endif %}" href="/report/summary">Report</a>
+  <a class="ops-shell-link {% if active_page == 'status' %}is-active{% endif %}" href="/system-status">Status</a>
+</aside>
+
+<script>
+(async function hydrateOpsShell() {
+  try {
+    const [healthRes, statsRes] = await Promise.all([
+      fetch('/health'),
+      fetch('/api/stats')
+    ]);
+
+    const health = await healthRes.json();
+    const stats = await statsRes.json();
+
+    const h = document.getElementById('ops-health');
+    const n = document.getElementById('ops-notes');
+    const p = document.getElementById('ops-processed');
+    const a = document.getElementById('ops-audit');
+
+    if (h) h.textContent = String((health.status || 'unknown')).toUpperCase();
+    if (n) n.textContent = Number(stats.note_count || 0).toLocaleString();
+    if (p) p.textContent = Number(stats.processed_count || 0).toLocaleString();
+    if (a) a.textContent = Number(stats.total_audit_events || 0).toLocaleString();
+  } catch (err) {
+    const h = document.getElementById('ops-health');
+    if (h) h.textContent = 'DEGRADED';
+  }
+})();
+</script>
