@@ -957,6 +957,10 @@ async function runDeidentify() {
 async function runAdminBackfill() {
   const token = window.prompt("Enter admin backfill token");
   if (!token) return;
+  const defaultReviewer = localStorage.getItem("clinicalner_admin_user") || "clinical.reviewer@company.com";
+  const reviewer = (window.prompt("Enter reviewer email/username", defaultReviewer) || "").trim();
+  if (!reviewer) return;
+  localStorage.setItem("clinicalner_admin_user", reviewer);
 
   const btn = document.getElementById("admin-backfill-btn");
   const status = document.getElementById("admin-backfill-status");
@@ -971,11 +975,13 @@ async function runAdminBackfill() {
       headers: {
         "Content-Type": "application/json",
         "X-Admin-Token": token,
-        "Authorization": "Bearer " + token
+        "Authorization": "Bearer " + token,
+        "X-Admin-User": reviewer
       },
       body: JSON.stringify({
         clear_existing: true,
-        admin_token: token
+        admin_token: token,
+        admin_user: reviewer
       })
     });
 
@@ -1007,7 +1013,8 @@ async function runAdminBackfill() {
       const statRes = await fetch(`/api/admin/backfill-status/${jobId}`, {
         headers: {
           "X-Admin-Token": token,
-          "Authorization": "Bearer " + token
+          "Authorization": "Bearer " + token,
+          "X-Admin-User": reviewer
         }
       });
       const { data: statPayload, raw: statRaw } = await parseApiResponse(statRes);
