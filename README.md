@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/ansh-0069/ClinicalNER/actions/workflows/tests.yml/badge.svg)
 ![Tests](https://img.shields.io/badge/tests-269%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/coverage-75%25%2B-brightgreen)
+![Coverage](https://img.shields.io/badge/coverage-70%25%2B-brightgreen)
 ![Live](https://img.shields.io/badge/live-azure-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.11-blue)
 ![spaCy](https://img.shields.io/badge/spaCy-3.x-09a3d5)
@@ -343,7 +343,7 @@ Model behavior:
 | Flask / Django             | 5 REST routes, consistent HTTP status codes                      |
 | Docker                     | Production Dockerfile, HEALTHCHECK, gunicorn                     |
 | Cloud deployment           | Docker-ready, gunicorn WSGI server                               |
-| Test coverage              | 269 tests, 75%+ line coverage on `src/`                          |
+| Test coverage              | 269 tests, 70%+ line coverage on `src/`                          |
 
 ---
 
