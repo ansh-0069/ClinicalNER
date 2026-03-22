@@ -198,27 +198,54 @@ def _register_api_routes(app: Flask) -> None:
     except Exception:
       return False
 
+  def _normalize_admin_token(value: str) -> str:
+    token = str(value or "").strip()
+    # Azure/GitHub app settings sometimes end up wrapped in quotes.
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in {'"', "'"}:
+      token = token[1:-1].strip()
+    return token
+
   def _auth_admin_token() -> tuple[bool, str, tuple[dict, int] | None]:
-    configured_token = os.getenv("ADMIN_BACKFILL_TOKEN", "").strip()
-    if not configured_token:
+    configured_tokens: list[tuple[str, str]] = []
+    for env_name in ("ADMIN_BACKFILL_TOKEN", "BACKFILL_ADMIN_TOKEN", "ADMIN_TOKEN"):
+      candidate = _normalize_admin_token(os.getenv(env_name, ""))
+      if candidate:
+        configured_tokens.append((env_name, candidate))
+
+    if not configured_tokens:
       return False, "", ({
-        "error": "Backfill endpoint disabled (ADMIN_BACKFILL_TOKEN not set)",
+        "error": "Backfill endpoint disabled (set ADMIN_BACKFILL_TOKEN)",
         "status": 503,
       }, 503)
 
     # Accept multiple auth transports to tolerate proxy/header normalization.
-    provided_token = request.headers.get("X-Admin-Token", "").strip()
+    provided_token = _normalize_admin_token(request.headers.get("X-Admin-Token", ""))
     if not provided_token:
-      auth_header = request.headers.get("Authorization", "").strip()
+      auth_header = _normalize_admin_token(request.headers.get("Authorization", ""))
       if auth_header.lower().startswith("bearer "):
-        provided_token = auth_header[7:].strip()
+        provided_token = _normalize_admin_token(auth_header[7:])
     if not provided_token:
-      provided_token = request.headers.get("X-API-Key", "").strip()
+      provided_token = _normalize_admin_token(request.headers.get("X-API-Key", ""))
     if not provided_token and request.method in {"POST", "PUT", "PATCH"}:
       payload = request.get_json(silent=True) or {}
-      provided_token = str(payload.get("admin_token", "")).strip()
+      provided_token = _normalize_admin_token(payload.get("admin_token", ""))
 
-    if not provided_token or not secrets.compare_digest(provided_token, configured_token):
+    if not provided_token:
+      return False, "", ({"error": "Unauthorized: admin token missing", "status": 401}, 401)
+
+    matched_source = ""
+    for env_name, configured_token in configured_tokens:
+      if secrets.compare_digest(provided_token, configured_token):
+        matched_source = env_name
+        break
+
+    if not matched_source:
+      logger.warning(
+        "Admin backfill token mismatch | sources=%s provided_len=%s configured_lens=%s",
+        ",".join(name for name, _ in configured_tokens),
+        len(provided_token),
+        ",".join(str(len(token)) for _, token in configured_tokens),
+      )
       return False, "", ({"error": "Unauthorized: invalid admin token", "status": 401}, 401)
 
     # Optional hardening: enforce an admin user header.
