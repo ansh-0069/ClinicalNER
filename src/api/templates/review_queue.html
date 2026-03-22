@@ -41,6 +41,30 @@ body{
   align-items:center;
   flex-wrap:wrap;
 }
+.sub-controls{
+  margin-top:10px;
+  display:flex;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.toggle{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-family:var(--mono);
+  font-size:11px;
+  color:rgba(242,244,239,.84);
+}
+.toggle input{accent-color:#c8ff45}
+.status-pill{
+  border:1px solid var(--line);
+  background:rgba(14,16,18,.92);
+  color:rgba(242,244,239,.84);
+  font-family:var(--mono);
+  font-size:11px;
+  padding:8px 10px;
+}
 input, textarea, button {
   font-family:var(--mono);
   font-size:12px;
@@ -129,6 +153,12 @@ button.primary{background:var(--signal);color:#111510;border-color:transparent;f
     <input id="reviewer" type="text" placeholder="Reviewer name (required for traceability)" value="clinical.reviewer@company.com" style="min-width:320px;">
     <button id="refresh" class="primary" type="button">Refresh Queue</button>
   </div>
+  <div class="sub-controls">
+    <input id="admin-token" type="password" placeholder="Admin backfill token" style="min-width:280px;">
+    <label class="toggle" for="clear-existing"><input id="clear-existing" type="checkbox">Clear existing processed notes</label>
+    <button id="run-backfill" type="button">Run Backfill Now</button>
+    <span id="backfill-status" class="status-pill">Backfill idle</span>
+  </div>
 </section>
 
 <section class="summary">
@@ -147,6 +177,10 @@ const queueRoot = document.getElementById('queue-root');
 const emptyRoot = document.getElementById('empty-root');
 const errorBox = document.getElementById('error-box');
 const reviewerInput = document.getElementById('reviewer');
+const adminTokenInput = document.getElementById('admin-token');
+const clearExistingInput = document.getElementById('clear-existing');
+const runBackfillBtn = document.getElementById('run-backfill');
+const backfillStatus = document.getElementById('backfill-status');
 
 function escapeHtml(text) {
   return String(text)
@@ -274,6 +308,102 @@ async function refreshAll() {
 }
 
 document.getElementById('refresh').addEventListener('click', refreshAll);
+
+async function pollBackfill(jobId, adminToken, adminUser) {
+  const maxAttempts = 120;
+  const delayMs = 2000;
+
+  for (let i = 0; i < maxAttempts; i += 1) {
+    const res = await fetch('/api/admin/backfill-status/' + encodeURIComponent(jobId), {
+      headers: {
+        'X-Admin-Token': adminToken,
+        'X-Admin-User': adminUser
+      }
+    });
+
+    const payload = await res.json();
+    if (!res.ok || payload.error) {
+      throw new Error(payload.error || 'Unable to fetch backfill status');
+    }
+
+    const job = payload.job || {};
+    const status = String(job.status || 'unknown');
+    const processed = Number(job.processed_notes || 0);
+    const total = Number(job.total_notes || 0);
+    const pct = Number(job.progress_pct || 0);
+    backfillStatus.textContent = 'Backfill ' + status + ' (' + processed + '/' + total + ', ' + pct.toFixed(1) + '%)';
+
+    if (status === 'completed') {
+      return;
+    }
+    if (status === 'failed') {
+      throw new Error(job.error || 'Backfill failed');
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  throw new Error('Backfill polling timed out');
+}
+
+runBackfillBtn.addEventListener('click', async () => {
+  const reviewer = reviewerInput.value.trim();
+  const adminToken = adminTokenInput.value.trim();
+
+  if (!reviewer) {
+    setError('Reviewer name is required before starting backfill.');
+    return;
+  }
+  if (!adminToken) {
+    setError('Admin backfill token is required.');
+    return;
+  }
+
+  setError('');
+  runBackfillBtn.disabled = true;
+  const oldText = runBackfillBtn.textContent;
+  runBackfillBtn.textContent = 'Starting...';
+  backfillStatus.textContent = 'Submitting backfill job...';
+
+  try {
+    const res = await fetch('/api/admin/backfill-processed', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Admin-Token': adminToken,
+        'X-Admin-User': reviewer
+      },
+      body: JSON.stringify({
+        clear_existing: Boolean(clearExistingInput.checked)
+      })
+    });
+
+    const payload = await res.json();
+    if (!res.ok || payload.error) {
+      throw new Error(payload.error || 'Unable to start backfill');
+    }
+
+    const jobId = payload.job && payload.job.job_id;
+    if (!jobId) {
+      throw new Error('Backfill job id missing from response');
+    }
+
+    backfillStatus.textContent = 'Backfill queued (job ' + jobId.slice(0, 8) + ')';
+    runBackfillBtn.textContent = 'Running...';
+
+    await pollBackfill(jobId, adminToken, reviewer);
+    backfillStatus.textContent = 'Backfill completed. Refreshing queue...';
+    await refreshAll();
+    backfillStatus.textContent = 'Backfill completed successfully';
+  } catch (err) {
+    backfillStatus.textContent = 'Backfill failed';
+    setError(err.message || 'Backfill failed');
+  } finally {
+    runBackfillBtn.disabled = false;
+    runBackfillBtn.textContent = oldText;
+  }
+});
+
 refreshAll();
 </script>
 </body>

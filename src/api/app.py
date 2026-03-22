@@ -120,6 +120,9 @@ def create_app(db_path: str | None = None) -> Flask:
 
     return app
 
+def _build_report_summary_payload(loader):
+    raise NotImplementedError
+
 
 # â”€â”€ API routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -183,6 +186,17 @@ def _register_api_routes(app: Flask) -> None:
         )
         """
       )
+
+  def _table_exists(table_name: str) -> bool:
+    try:
+      with sqlite3.connect(app.config["DB_PATH"]) as conn:
+        row = conn.execute(
+          "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ? LIMIT 1",
+          (table_name,),
+        ).fetchone()
+      return bool(row)
+    except Exception:
+      return False
 
   def _auth_admin_token() -> tuple[bool, str, tuple[dict, int] | None]:
     configured_token = os.getenv("ADMIN_BACKFILL_TOKEN", "").strip()
@@ -555,6 +569,14 @@ def _register_api_routes(app: Flask) -> None:
       loader: DataLoader = app.config["LOADER"]
       _ensure_review_table(loader)
 
+      if not _table_exists("processed_notes"):
+        return jsonify({
+          "status": 200,
+          "count": 0,
+          "items": [],
+          "message": "processed_notes table not found yet. Run processing/backfill first.",
+        }), 200
+
       limit_raw = request.args.get("limit", "50")
       try:
           limit = max(1, min(int(limit_raw), 200))
@@ -624,14 +646,17 @@ def _register_api_routes(app: Flask) -> None:
       _ensure_review_table(loader)
 
       try:
+        if _table_exists("processed_notes"):
           pending_df = loader.sql_query(
-              """
-              SELECT COUNT(*) AS n
-              FROM processed_notes pn
-              LEFT JOIN review_decisions rd ON rd.note_id = pn.note_id
-              WHERE pn.entity_count >= 8 AND rd.note_id IS NULL
-              """
+            """
+            SELECT COUNT(*) AS n
+            FROM processed_notes pn
+            LEFT JOIN review_decisions rd ON rd.note_id = pn.note_id
+            WHERE pn.entity_count >= 8 AND rd.note_id IS NULL
+            """
           )
+        else:
+          pending_df = None
           decided_df = loader.sql_query(
               "SELECT decision, COUNT(*) AS n FROM review_decisions GROUP BY decision"
           )
@@ -641,7 +666,7 @@ def _register_api_routes(app: Flask) -> None:
       by_decision = {r["decision"]: int(r["n"]) for _, r in decided_df.iterrows()} if not decided_df.empty else {}
       return jsonify({
           "status": 200,
-          "pending": int(pending_df.iloc[0]["n"] if not pending_df.empty else 0),
+          "pending": int(pending_df.iloc[0]["n"] if pending_df is not None and not pending_df.empty else 0),
           "by_decision": by_decision,
       }), 200
 
@@ -650,6 +675,15 @@ def _register_api_routes(app: Flask) -> None:
       """Simple drift monitor comparing recent vs baseline processed-note windows."""
       loader: DataLoader = app.config["LOADER"]
       window = 100
+
+      if not _table_exists("processed_notes"):
+        return jsonify({
+          "status": 200,
+          "message": "processed_notes table not found yet. Run processing/backfill first.",
+          "window": window,
+          "drift_pct": 0.0,
+          "drift_state": "insufficient-data",
+        }), 200
 
       try:
           recent = loader.sql_query(
@@ -700,19 +734,22 @@ def _register_api_routes(app: Flask) -> None:
 
       _ensure_review_table(loader)
       try:
-          pending_df = loader.sql_query(
+          if _table_exists("processed_notes"):
+            pending_df = loader.sql_query(
               """
               SELECT COUNT(*) AS n
               FROM processed_notes pn
               LEFT JOIN review_decisions rd ON rd.note_id = pn.note_id
               WHERE pn.entity_count >= 8 AND rd.note_id IS NULL
               """
-          )
+            )
+          else:
+            pending_df = None
           decided_df = loader.sql_query(
               "SELECT decision, COUNT(*) AS n FROM review_decisions GROUP BY decision"
           )
           review = {
-              "pending": int(pending_df.iloc[0]["n"] if not pending_df.empty else 0),
+            "pending": int(pending_df.iloc[0]["n"] if pending_df is not None and not pending_df.empty else 0),
               "by_decision": {r["decision"]: int(r["n"]) for _, r in decided_df.iterrows()} if not decided_df.empty else {},
           }
       except Exception:
