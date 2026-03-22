@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import secrets
+import tempfile
 import sqlite3
 import sys
 import threading
@@ -49,6 +50,7 @@ from src.pipeline.data_cleaner import DataCleaner
 from src.pipeline.audit_logger import AuditLogger, EventType
 from src.pipeline.anomaly_detector import AnomalyDetector
 from src.pipeline.readmission_predictor import ReadmissionPredictor
+from src.utils.text_extractor import extract as extract_document_text
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(name)s | %(message)s")
@@ -585,12 +587,16 @@ def _register_api_routes(app: Flask) -> None:
       """
       De-identify a clinical note.
 
-      Request body (JSON):
+      Request (JSON):
         {
           "text":     "Patient James Smith...",   â† required
           "note_id":  42,                          â† optional
           "save":     true                         â† optional, default true
         }
+
+      Or ``multipart/form-data`` with:
+        - ``file``: a ``.pdf``, ``.docx``, ``.txt``, ``.html``/``.htm``, ``.json``, or ``.jsonl`` upload
+        - ``note_id``, ``save`` (optional form fields, same meaning as JSON)
 
       Response (JSON):
         {
@@ -612,14 +618,76 @@ def _register_api_routes(app: Flask) -> None:
       if not ok:
         return jsonify(rate_error[0]), rate_error[1]
 
-      # â”€â”€ Input validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-      if not request.is_json:
-          return jsonify({"error": "Request must be JSON", "status": 400}), 400
+      # â”€â”€ Input: JSON text or multipart file (PDF/DOCX/txt/html/json/jsonl) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+      upload = request.files.get("file")
+      note_id = None
+      save = True
 
-      data    = request.get_json()
-      text    = data.get("text", "").strip()
-      note_id = data.get("note_id")
-      save    = data.get("save", True)
+      if upload and upload.filename:
+          suffix = Path(upload.filename).suffix.lower()
+          allowed = {".pdf", ".docx", ".txt", ".html", ".htm", ".json", ".jsonl"}
+          if suffix not in allowed:
+              return (
+                  jsonify(
+                      {
+                          "error": (
+                              "Unsupported file type. Use .pdf, .docx, .txt, .html, .htm, .json, or .jsonl."
+                          ),
+                          "status": 400,
+                      },
+                  ),
+                  400,
+              )
+
+          max_bytes = 8 * 1024 * 1024
+          blob = upload.read()
+          if len(blob) > max_bytes:
+              return jsonify({"error": "File exceeds 8 MB limit", "status": 413}), 413
+          if not blob:
+              return jsonify({"error": "Empty file", "status": 400}), 400
+
+          fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+          os.close(fd)
+          try:
+              Path(tmp_path).write_bytes(blob)
+              text = extract_document_text(tmp_path)
+          except ImportError as exc:
+              return jsonify({"error": str(exc), "status": 503}), 503
+          except Exception as exc:
+              logger.warning("document extract failed: %s", exc)
+              return jsonify({"error": f"Could not read document: {exc}", "status": 400}), 400
+          finally:
+              if os.path.exists(tmp_path):
+                  os.unlink(tmp_path)
+
+          text = text.strip()
+          raw_nid = request.form.get("note_id")
+          if raw_nid not in (None, ""):
+              try:
+                  note_id = int(raw_nid)
+              except ValueError:
+                  return jsonify({"error": "Invalid note_id", "status": 400}), 400
+          save_raw = (request.form.get("save") or "true").strip().lower()
+          save = save_raw in ("1", "true", "yes", "on")
+
+      else:
+          if not request.is_json:
+              return (
+                  jsonify(
+                      {
+                          "error": (
+                              'Send JSON with a "text" field, or multipart/form-data with a "file" field.'
+                          ),
+                          "status": 400,
+                      },
+                  ),
+                  400,
+              )
+
+          data = request.get_json()
+          text = (data.get("text") or "").strip()
+          note_id = data.get("note_id")
+          save = data.get("save", True)
 
       if not text:
           return jsonify({"error": "Field 'text' is required and cannot be empty", "status": 400}), 400

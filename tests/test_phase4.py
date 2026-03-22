@@ -5,6 +5,8 @@ Tests for Flask app routes (app.py).
 Drop this file into: tests/test_phase4.py
 """
 
+import io
+
 import pytest
 import json
 from src.api.app import create_app
@@ -114,6 +116,30 @@ class TestDeidentify:
     def test_non_json_request_returns_400(self, client):
         r = client.post("/api/deidentify",
             data="plain text", content_type="text/plain")
+        assert r.status_code == 400
+        err = r.get_json()
+        assert "error" in err
+        assert "text" in err["error"].lower() or "file" in err["error"].lower()
+
+    def test_multipart_txt_file_deidentifies(self, client):
+        buf = io.BytesIO(b"Patient DOB: 04/12/1985. Phone: (415) 555-9876.")
+        r = client.post(
+            "/api/deidentify",
+            data={"file": (buf, "note.txt")},
+            content_type="multipart/form-data",
+        )
+        assert r.status_code == 200
+        data = r.get_json()
+        assert "masked_text" in data
+        assert data.get("entity_count", 0) >= 0
+
+    def test_multipart_bad_extension_returns_400(self, client):
+        buf = io.BytesIO(b"hello")
+        r = client.post(
+            "/api/deidentify",
+            data={"file": (buf, "x.exe")},
+            content_type="multipart/form-data",
+        )
         assert r.status_code == 400
 
     def test_oversized_text_returns_413(self, client):

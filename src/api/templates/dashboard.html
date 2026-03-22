@@ -320,6 +320,36 @@ textarea:focus {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.demo-upload-row {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: rgba(242, 244, 239, 0.55);
+}
+
+.demo-file-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.demo-file-label input[type="file"] {
+  font-size: 11px;
+  max-width: 100%;
+  color: var(--paper);
+}
+
+.demo-file-name {
+  font-size: 10px;
+  color: rgba(200, 255, 69, 0.55);
+  min-height: 1.2em;
 }
 
 .btn {
@@ -588,6 +618,13 @@ textarea:focus {
         <span class="panel-label">Input · Clinical Note</span>
       </div>
       <textarea id="demo-text" placeholder="Paste a clinical note here...">Patient James Smith, DOB: 04/12/1985. Phone: (415) 555-9876. MRN302145. Admitted to St. Mary's Hospital on 01/15/2024. Age: 38 years old.</textarea>
+      <div class="demo-upload-row">
+        <label class="demo-file-label">
+          <span>Or upload a file</span>
+          <input type="file" id="demo-file" accept=".pdf,.docx,.txt,.html,.htm,.json,.jsonl,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+        </label>
+        <span class="demo-file-name" id="demo-file-name" aria-live="polite"></span>
+      </div>
       <div class="action-row">
         <button class="btn btn-primary" id="demo-btn" type="button">De-identify</button>
       </div>
@@ -870,8 +907,10 @@ function renderMaskedText(maskedText) {
 }
 
 async function runDeidentify() {
+  const fileEl = document.getElementById("demo-file");
+  const file = fileEl && fileEl.files && fileEl.files[0];
   const input = document.getElementById("demo-text").value.trim();
-  if (!input) return;
+  if (!file && !input) return;
 
   const btn = document.getElementById("demo-btn");
   const out = document.getElementById("demo-output");
@@ -884,11 +923,19 @@ async function runDeidentify() {
   chips.innerHTML = "";
 
   try {
-    const res = await fetch("/api/deidentify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: input, save: false })
-    });
+    let res;
+    if (file) {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("save", "false");
+      res = await fetch("/api/deidentify", { method: "POST", body: fd });
+    } else {
+      res = await fetch("/api/deidentify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: input, save: false })
+      });
+    }
 
     const payload = await res.json();
     if (!res.ok || payload.error) throw new Error(payload.error || "API error");
@@ -916,6 +963,15 @@ async function runDeidentify() {
 }
 
 document.getElementById("demo-btn").addEventListener("click", runDeidentify);
+(function setupDemoFile() {
+  const input = document.getElementById("demo-file");
+  const label = document.getElementById("demo-file-name");
+  if (!input || !label) return;
+  input.addEventListener("change", () => {
+    const f = input.files && input.files[0];
+    label.textContent = f ? f.name : "";
+  });
+})();
 
 setupHeroSequence();
 setupStoryScroll();
