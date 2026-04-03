@@ -1,11 +1,15 @@
 # Clinical Trial Use Cases
 
+## Scope
+
+The scenarios below are **illustrative** — they describe **where** automated de-identification and quality tooling **could** add value in industry, using **hypothetical** timelines and metrics. They are **not** results from this repository running in a validated trial environment, and they **do not** imply GxP validation, EDC integration, or regulatory submission readiness. See `docs/COMPLIANCE.md` for limitations.
+
 ## Overview
-This document outlines real-world clinical trial scenarios where the ClinicalNER pipeline solves critical business problems in clinical data management.
+This document outlines **example** clinical data management scenarios that **motivate** the design of the ClinicalNER portfolio pipeline (prototyping, PoC, and engineering practice).
 
 ---
 
-## Use Case 1: Accelerated Database Lock for Regulatory Submissions
+## Use Case 1: Accelerated database lock and submission support (illustrative)
 
 ### Business Problem
 Manual PHI redaction is a major bottleneck in clinical trial timelines. For a typical Phase III trial with 5,000 clinical notes:
@@ -20,7 +24,7 @@ Automated de-identification pipeline with quality validation:
 Input: 5,000 clinical notes
 Processing time: 2-3 hours (automated)
 Quality validation: Real-time
-Output: De-identified dataset ready for submission
+Output: De-identified text for further QC (real submissions require protocol-specific processes and expert sign-off)
 ```
 
 ### Impact
@@ -71,11 +75,11 @@ if not report.passed:
     send_alert(report.recommendations)
 ```
 
-### Impact
-- **Early detection**: Issues caught within 24 hours vs 6 weeks
-- **Reduced rework**: 70% fewer data cleaning cycles
-- **Audit readiness**: 100% ICH E6 compliance
-- **Cost avoidance**: $75,000 per study
+### Impact (illustrative)
+- **Early detection**: Issues caught sooner vs late-stage cleaning (hypothetical)
+- **Reduced rework**: Fewer cycles when QC is automated — **magnitude is illustrative**
+- **Traceability**: Audit-style logs echo GCP concepts; **not** a validated inspection package
+- **Cost**: Illustrative only
 
 ---
 
@@ -130,7 +134,7 @@ Manual audit trail creation:
 - **Compliance risk**: Potential 483 observations
 
 ### Solution
-Automated ICH E6 compliant audit logging:
+Automated audit logging **inspired by** traceability expectations under GCP (demo implementation):
 
 ```python
 from src.pipeline.audit_logger import AuditLogger, EventType
@@ -144,11 +148,9 @@ audit.log(
 )
 ```
 
-### Impact
-- **Audit preparation**: 30 hours → 2 hours
-- **Compliance**: 100% ICH E6 / 21 CFR Part 11 compliant
-- **Audit findings**: Zero findings related to audit trail
-- **Inspector confidence**: Complete, tamper-proof records
+### Impact (illustrative)
+- **Less manual log assembly** when events are captured in code (real audits need SOPs and validated systems)
+- **Not** Part 11–validated or “zero findings” — those would require a regulated deployment and QA sign-off
 
 ---
 
@@ -242,14 +244,9 @@ if risk_score > 0.7:
 
 ---
 
-## Regulatory Compliance
+## Regulatory and standards framing
 
-All use cases maintain compliance with:
-- **HIPAA**: Safe Harbor de-identification method
-- **ICH E6 (GCP)**: Good Clinical Practice guidelines
-- **21 CFR Part 11**: Electronic records and signatures
-- **GDPR**: EU data protection (when applicable)
-- **CDISC**: Clinical data standards
+The **codebase** implements **privacy- and quality-oriented patterns** (masking, audit logs, benchmarks, listings) that can be **discussed alongside** HIPAA Safe Harbor concepts, GCP-style data integrity ideas, and CDISC-inspired exports. **None of this constitutes compliance certification** or replaces sponsor/CRO SOPs, validation, or legal review. See `docs/COMPLIANCE.md`.
 
 ---
 
@@ -274,11 +271,6 @@ All use cases maintain compliance with:
 
 ## Conclusion
 
-The ClinicalNER pipeline addresses critical bottlenecks in clinical trial data management, delivering measurable ROI through:
-1. **Time savings**: 85-95% reduction in manual effort
-2. **Cost reduction**: $460K+ annually
-3. **Quality improvement**: 99%+ PHI detection
-4. **Compliance**: 100% regulatory standards met
-5. **Risk mitigation**: Early detection of issues
+This portfolio pipeline demonstrates **Python-based** handling of unstructured clinical text, **data quality checks**, **audit-style logging**, **ML-assisted masking**, and **listing-style exports** — skills relevant to **Associate Clinical Programmer**–style roles when combined with protocol and CDM process knowledge.
 
-These use cases demonstrate practical application of data science techniques to solve real business problems in clinical data operations.
+The **numeric ROI examples** above are **hypothetical** for storytelling; they are not measured outcomes from a deployed trial. For interviews, emphasize **what you built**, **how it maps to DQP/traceability docs**, and **honest limits** (`COMPLIANCE.md`).

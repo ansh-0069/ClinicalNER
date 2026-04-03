@@ -11,7 +11,7 @@
 
 > **Portfolio Project for Associate Clinical Programmer Role**
 
-An end-to-end NLP pipeline that automates PHI de-identification in clinical trial data, reducing manual processing time by 85% while maintaining 99%+ accuracy and full regulatory compliance.
+An end-to-end NLP pipeline for **portfolio / PoC** use: PHI masking, data-quality checks, audit-style logging, benchmarks, and CDISC-inspired listings. **Not a validated GxP or submission system** — see `docs/COMPLIANCE.md`.
 
 ## Live Demo
 
@@ -367,25 +367,25 @@ report = validator.validate_note(note_id, original, processed, entities)
 # ✓ Consistency validation
 ```
 
-### Regulatory Reporting
+### Reporting and listings (demo / PoC)
 
-Generate ICH E6 compliant reports:
+Listing-style reports for review and demos — **not** a validated regulatory submission package:
 
 ```python
 from src.reports.clinical_listings import ClinicalReportGenerator
 
 reporter = ClinicalReportGenerator()
 
-# Study status reports
+# Study-style processing summary (demo)
 reporter.generate_processing_summary()
 
-# Audit trail for regulatory submissions
+# Audit-style listing export
 reporter.generate_audit_listing(start_date='2024-01-01')
 
-# Quality control reports for DMC
+# Quality control–style report
 reporter.generate_quality_control_report()
 
-# Complete submission package
+# Bundled demo export (not FDA/EMA submission-ready)
 reporter.generate_regulatory_submission_package(study_id='STUDY001')
 ```
 
@@ -411,7 +411,7 @@ high_risk = loader.sql_query(QUERY_CATALOG['high_risk_notes'])
 ## 📚 Documentation
 
 - **[CLINICAL_USE_CASES.md](docs/CLINICAL_USE_CASES.md)** — 6 real-world use cases with ROI analysis
-- **[COMPLIANCE.md](docs/COMPLIANCE.md)** — HIPAA, ICH E6, 21 CFR Part 11 compliance documentation
+- **[COMPLIANCE.md](docs/COMPLIANCE.md)** — Scope, limitations, and how design choices relate to privacy / quality **concepts** (not certification)
 - **[STRUCTURE.md](STRUCTURE.md)** — Project architecture and file organization
 - **[AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md)** — Azure App Service + ACR deployment guide
 
@@ -421,11 +421,10 @@ high_risk = loader.sql_query(QUERY_CATALOG['high_risk_notes'])
 
 ### Clinical Data Management
 
-- ✅ Data Quality Plan (DQP) validation
-- ✅ Clinical Study Protocol (CSP) compliance
-- ✅ Regulatory submission preparation
-- ✅ ICH E6 (GCP) audit trail
-- ✅ CDISC standards alignment
+- ✅ DQP-style documentation and live DQ metrics (`DATA_QUALITY_PLAN.md`, `/api/data-quality`)
+- ✅ Traceability matrix (requirements → code → tests)
+- ✅ CDISC-inspired listing exports (demo, not validated SDTM/ADaM)
+- ✅ Audit log patterns analogous to GCP-style traceability (demo DB, not Part 11–validated)
 
 ### Data Science & ML
 
@@ -444,33 +443,28 @@ high_risk = loader.sql_query(QUERY_CATALOG['high_risk_notes'])
 - ✅ Test-driven development (pytest)
 - ✅ CI/CD ready
 
-### Regulatory Knowledge
+### Regulatory and privacy concepts (study-level; not legal advice)
 
-- ✅ HIPAA Safe Harbor method
-- ✅ ICH E6 (R2) GCP guidelines
-- ✅ 21 CFR Part 11 electronic records
-- ✅ GDPR data protection
-- ✅ FDA guidance compliance
+- ✅ HIPAA Safe Harbor–style masking (technical implementation; formal determination is out of scope)
+- ✅ Familiarity with GCP / ALCOA-style language via audit + lineage docs
+- ✅ Awareness of Part 11 / GDPR / FDA themes (see `COMPLIANCE.md` for honest scope)
 
 ---
 
 ## 💼 Resume Highlights
 
-**Key Achievements:**
+**Key achievements (portfolio):**
 
-- Developed end-to-end clinical data pipeline reducing manual PHI redaction time by **85%**
-- Implemented HIPAA-compliant de-identification with **99.2% accuracy** and ICH E6 audit trail
-- Built data quality validation framework aligned with DQP standards for regulatory submissions
-- Created predictive models for data quality assessment in clinical trials
-- Deployed containerized solution using Docker and Flask for cloud environments
-- Processed structured (SQL) and unstructured (clinical notes) data for regulatory submissions
-- Generated regulatory-compliant reports (ICH E3, CDISC) for FDA/EMA submissions
+- Built end-to-end pipeline for unstructured clinical text: NER, masking, SQLite, SQL queries, Flask API
+- Documented DQP-style checks, traceability, benchmarks, and ML governance (`docs/`)
+- Shipped tests + CI, optional Azure deploy; demo listings joining DM-style fields to notes
+- **Scope:** engineering and documentation practice for clinical data roles — **not** validated trial software
 
-**Technical Stack:**
+**Technical stack:**
 Python • spaCy • scikit-learn • Pandas • SQL • Flask • Docker • Git • pytest
 
-**Domain Knowledge:**
-Clinical Trials • HIPAA • ICH E6 (GCP) • 21 CFR Part 11 • CDISC • Data Quality Plans
+**Domain familiarity (interview topics):**
+Clinical data operations • HIPAA / privacy concepts • DQP traceability • CDISC-inspired exports • GCP-style audit ideas
 
 ---
 

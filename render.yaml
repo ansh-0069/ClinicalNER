@@ -1,8 +1,0 @@
-services:
-  - type: web
-    name: clinicalner
-    runtime: docker
-    dockerfilePath: docker/Dockerfile
-    dockerContext: .
-    plan: free
-    healthCheckPath: /health
