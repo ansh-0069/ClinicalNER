@@ -67,7 +67,9 @@ def create_app(db_path: str | None = None) -> Flask:
     db_path : path to SQLite database (override for testing)
     """
     # Resolve DB path from function arg first, then environment, then fallback.
-    resolved_db_path = db_path or os.getenv("DB_PATH", "data/clinicalner.db")
+    # Treat empty DB_PATH (common mis-set App Service secret) as unset so SQLite can open.
+    _env_db = (os.getenv("DB_PATH") or "").strip()
+    resolved_db_path = (db_path or _env_db or "data/clinicalner.db").strip() or "data/clinicalner.db"
 
     # Set template folder to absolute path
     template_dir = Path(__file__).parent / "templates"

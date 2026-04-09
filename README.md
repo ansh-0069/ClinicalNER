@@ -479,7 +479,3 @@ For questions about this project:
 ## 📄 License
 
 MIT License - See [LICENSE](LICENSE) for details.
-
----
-
-**Built with ❤️ for Clinical Data Operations**

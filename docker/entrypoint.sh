@@ -20,6 +20,15 @@ set -e   # exit immediately on any error
 
 echo "==> ClinicalNER container starting..."
 
+# Azure App Service: route traffic to the port we bind. Default image uses 5000.
+# WEBSITES_PORT app setting + PORT are both seen in some SKUs — prefer PORT.
+PORT_VALUE="${PORT:-${WEBSITES_PORT:-5000}}"
+export PORT="$PORT_VALUE"
+echo "==> Listening on PORT=$PORT_VALUE"
+
+# Small plans OOM with 4 spaCy workers; override with GUNICORN_WORKERS=1 if needed.
+GUNICORN_WORKERS="${GUNICORN_WORKERS:-2}"
+
 # ── 1. Ensure data directory exists ──────────────────────────────────────────
 mkdir -p /app/data/raw /app/data/eda_outputs
 
@@ -85,7 +94,6 @@ fi
 
 # ── 3. Start the server ───────────────────────────────────────────────────────
 if [ "$FLASK_ENV" = "development" ]; then
-    PORT_VALUE="${PORT:-5000}"
     echo "==> Starting Flask dev server on :$PORT_VALUE ..."
     python -c "
 import sys
@@ -93,18 +101,16 @@ import os
 sys.path.insert(0, '/app')
 from src.api.app import create_app
 app = create_app()
-app.run(host='0.0.0.0', port=int(os.getenv('PORT', '5000')), debug=True)
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', '5000')), debug=True)
 "
 else
-    PORT_VALUE="${PORT:-5000}"
-    echo "==> Starting gunicorn (4 workers) on :$PORT_VALUE ..."
-    # --workers 4     : handle concurrent requests
+    echo "==> Starting gunicorn (${GUNICORN_WORKERS} workers) on :$PORT_VALUE ..."
     # --timeout 120   : NER on long notes can take a few seconds
     # --access-logfile - : stream access logs to stdout (captured by Docker)
     exec gunicorn \
-        --workers 4 \
+        --workers "${GUNICORN_WORKERS}" \
         --timeout 120 \
-        --bind 0.0.0.0:${PORT_VALUE} \
+        --bind "0.0.0.0:${PORT_VALUE}" \
         --access-logfile - \
         --error-logfile - \
         "src.api.app:create_app()"

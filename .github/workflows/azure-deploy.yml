@@ -125,6 +125,7 @@ jobs:
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --name           "$AZURE_WEBAPP_NAME" \
             --settings \
+            WEBSITES_PORT=5000 \
             DB_PATH="${{ secrets.DB_PATH }}" \
             ADMIN_BACKFILL_TOKEN="${{ secrets.ADMIN_BACKFILL_TOKEN }}" \
             ADMIN_REQUIRE_USER_HEADER="true"
