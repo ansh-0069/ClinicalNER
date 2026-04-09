@@ -26,6 +26,7 @@ body{font-family:var(--sans);background:radial-gradient(1200px 700px at 85% -10%
 .grid{margin-top:30px;display:grid;grid-template-columns:1.2fr 1fr;gap:1px;background:var(--line)}
 .panel{background:rgba(10,12,13,.96);padding:18px}
 .label{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:rgba(242,244,239,.46);margin-bottom:12px}
+.label code{font-family:var(--mono);text-transform:none;letter-spacing:0;font-size:11px;color:rgba(242,244,239,.75)}
 textarea,input,select{width:100%;background:rgba(15,18,19,.92);border:1px solid var(--line);color:var(--paper);font-family:var(--mono);font-size:12px;padding:10px;outline:none}
 textarea{min-height:180px;resize:vertical;line-height:1.7}
 .row{display:grid;grid-template-columns:140px 1fr;gap:8px;margin-bottom:8px;align-items:center}
@@ -34,6 +35,8 @@ button:hover{border-color:rgba(200,255,69,.5);background:var(--soft)}
 button.primary{background:var(--signal);color:#101410;border-color:transparent;font-weight:700}
 button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-visible{outline:2px solid rgba(200,255,69,.75);outline-offset:2px}
 .actions{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+.preset-row{display:grid;grid-template-columns:140px 1fr;gap:8px;margin-bottom:14px;align-items:center}
+.preset-row select{font-size:12px}
 pre{font-family:var(--mono);font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-word;color:rgba(242,244,239,.92)}
 .routes{margin-top:24px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line)}
 .route{background:rgba(10,12,13,.95);padding:14px}
@@ -43,7 +46,7 @@ pre{font-family:var(--mono);font-size:12px;line-height:1.7;white-space:pre-wrap;
 .dock a{color:rgba(242,244,239,.64);text-decoration:none;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;border:1px solid transparent;padding:9px 12px}
 .dock a.active,.dock a:hover{color:var(--paper);border-color:rgba(200,255,69,.42);background:var(--soft)}
 @media(max-width:980px){.grid{grid-template-columns:1fr}.routes{grid-template-columns:1fr}}
-@media(max-width:760px){.story-wrap{grid-template-columns:1fr}.story-left{position:relative;min-height:34vh}.row{grid-template-columns:1fr}.dock{left:10px;right:10px;transform:none;width:calc(100vw - 20px);overflow-x:auto}.dock a{white-space:nowrap}}
+@media(max-width:760px){.story-wrap{grid-template-columns:1fr}.story-left{position:relative;min-height:34vh}.row,.preset-row{grid-template-columns:1fr}.dock{left:10px;right:10px;transform:none;width:calc(100vw - 20px);overflow-x:auto}.dock a{white-space:nowrap}}
 </style>
 </head>
 <body>
@@ -69,13 +72,60 @@ without context switching.</h3><p>Sample actions accelerate endpoint checks acro
 <section class="grid">
   <article class="panel animate-up">
     <div class="label">Request Builder</div>
-    <div class="row"><label class="label" for="method">Method</label><select id="method"><option>GET</option><option>POST</option></select></div>
-    <div class="row"><label class="label" for="endpoint">Endpoint</label><input id="endpoint" value="/api/stats"></div>
+    <div class="preset-row">
+      <label class="label" for="endpoint-preset">Quick pick</label>
+      <select id="endpoint-preset" aria-label="Choose a preset API endpoint">
+        <option value="">Custom — edit fields below</option>
+        <optgroup label="GET — Core &amp; health">
+          <option value="get-health">GET /health — Liveness</option>
+          <option value="get-stats">GET /api/stats — Pipeline statistics</option>
+          <option value="get-note">GET /api/note/1 — Single note (JSON)</option>
+          <option value="get-report-summary">GET /api/report/summary — Study summary JSON</option>
+        </optgroup>
+        <optgroup label="GET — Blueprint (/api)">
+          <option value="get-bp-note">GET /api/notes/1 — Note from DB</option>
+          <option value="get-audit">GET /api/audit — Recent audit rows</option>
+          <option value="get-data-quality">GET /api/data-quality — DQ dimensions</option>
+          <option value="get-model-registry">GET /api/model-registry — Model registry</option>
+        </optgroup>
+        <optgroup label="GET — Review &amp; drift">
+          <option value="get-review-queue">GET /api/review/queue — Pending review items</option>
+          <option value="get-review-summary">GET /api/review/summary — Review counts</option>
+          <option value="get-drift">GET /api/drift/summary — Entity-count drift</option>
+          <option value="get-compliance-pack">GET /api/export/compliance-pack — Compliance bundle</option>
+        </optgroup>
+        <optgroup label="GET — Admin (needs X-Admin-Token)">
+          <option value="get-admin-status-latest">GET /api/admin/backfill-status — Latest job</option>
+          <option value="get-admin-status-id">GET /api/admin/backfill-status/&lt;job_id&gt;</option>
+        </optgroup>
+        <optgroup label="POST — Masking &amp; ML">
+          <option value="post-deidentify">POST /api/deidentify — Mask JSON text</option>
+          <option value="post-anomaly">POST /api/anomaly-scan — 10+ notes (IsolationForest)</option>
+          <option value="post-readmission">POST /api/predict-readmission — Readmission risk</option>
+        </optgroup>
+        <optgroup label="POST — Review &amp; admin">
+          <option value="post-review-decision">POST /api/review/decision — Submit review</option>
+          <option value="post-backfill">POST /api/admin/backfill-processed — Queue backfill</option>
+        </optgroup>
+        <optgroup label="POST — Stubs (may 501)">
+          <option value="post-notes-stub">POST /api/notes — Upload note (stub)</option>
+          <option value="post-process-stub">POST /api/process — Run NER (stub)</option>
+        </optgroup>
+      </select>
+    </div>
+    <div class="row"><label class="label" for="method">Method</label><select id="method">
+      <option>GET</option>
+      <option>POST</option>
+      <option>PUT</option>
+      <option>PATCH</option>
+      <option>DELETE</option>
+    </select></div>
+    <div class="row"><label class="label" for="endpoint">Path</label><input id="endpoint" type="text" value="/api/stats" autocomplete="off" spellcheck="false"></div>
     <div class="label" style="margin-top:10px">Headers (JSON)</div>
     <textarea id="headers" spellcheck="false">{
   "Content-Type": "application/json"
 }</textarea>
-    <div class="label" style="margin-top:10px">JSON Body</div>
+    <div class="label" style="margin-top:10px">JSON body — POST / PUT / PATCH; optional for DELETE (leave empty or <code>{}</code> for no body)</div>
     <textarea id="body" spellcheck="false">{
   "text": "Patient James Smith, DOB 04/12/1985, Phone (415) 555-9876, MRN302145.",
   "save": false
@@ -94,10 +144,18 @@ without context switching.</h3><p>Sample actions accelerate endpoint checks acro
 </section>
 
 <section class="routes">
-  <article class="route animate-up"><span class="method">GET /health</span><small>Liveness probe</small></article>
+  <article class="route animate-up"><span class="method">GET /health</span><small>Liveness</small></article>
   <article class="route animate-up"><span class="method">GET /api/stats</span><small>Pipeline statistics</small></article>
-  <article class="route animate-up"><span class="method">POST /api/deidentify</span><small>JSON text or multipart file (PDF, DOCX, txt, …)</small></article>
-  <article class="route animate-up"><span class="method">POST /api/anomaly-scan</span><small>IsolationForest scan</small></article>
+  <article class="route animate-up"><span class="method">GET /api/note/&lt;id&gt;</span><small>Single note JSON</small></article>
+  <article class="route animate-up"><span class="method">GET /api/notes/&lt;id&gt;</span><small>Note via blueprint</small></article>
+  <article class="route animate-up"><span class="method">GET /api/audit</span><small>Audit log rows</small></article>
+  <article class="route animate-up"><span class="method">GET /api/data-quality</span><small>DQ report</small></article>
+  <article class="route animate-up"><span class="method">GET /api/model-registry</span><small>Models + active</small></article>
+  <article class="route animate-up"><span class="method">GET /api/review/queue</span><small>Manual review queue</small></article>
+  <article class="route animate-up"><span class="method">POST /api/deidentify</span><small>JSON or multipart file</small></article>
+  <article class="route animate-up"><span class="method">POST /api/anomaly-scan</span><small>≥10 notes → scores</small></article>
+  <article class="route animate-up"><span class="method">POST /api/predict-readmission</span><small>Risk from note features</small></article>
+  <article class="route animate-up"><span class="method">GET /api/export/compliance-pack</span><small>Bundle JSON</small></article>
 </section>
 
 <nav class="dock">
@@ -183,6 +241,114 @@ const endpointEl = document.getElementById('endpoint');
 const headersEl = document.getElementById('headers');
 const bodyEl = document.getElementById('body');
 const responseEl = document.getElementById('response');
+const presetEl = document.getElementById('endpoint-preset');
+
+const anomalyScanBody = JSON.stringify({
+  notes: Array.from({ length: 10 }, (_, i) => `Clinical note ${i + 1}: Patient MRN ${8000 + i}, routine outpatient visit.`)
+}, null, 2);
+
+const adminJsonHeaders = {
+  'Content-Type': 'application/json',
+  'X-Admin-Token': 'PASTE_ADMIN_BACKFILL_TOKEN'
+};
+
+/** Presets: fill method, path, headers, body when chosen from the dropdown */
+const ENDPOINT_PRESETS = {
+  'get-health': { method: 'GET', path: '/health', headers: {}, body: '{}' },
+  'get-stats': { method: 'GET', path: '/api/stats', headers: {}, body: '{}' },
+  'get-note': { method: 'GET', path: '/api/note/1', headers: {}, body: '{}' },
+  'get-report-summary': { method: 'GET', path: '/api/report/summary', headers: {}, body: '{}' },
+  'get-bp-note': { method: 'GET', path: '/api/notes/1', headers: {}, body: '{}' },
+  'get-audit': { method: 'GET', path: '/api/audit', headers: {}, body: '{}' },
+  'get-data-quality': { method: 'GET', path: '/api/data-quality', headers: {}, body: '{}' },
+  'get-model-registry': { method: 'GET', path: '/api/model-registry', headers: {}, body: '{}' },
+  'get-review-queue': { method: 'GET', path: '/api/review/queue?limit=50', headers: {}, body: '{}' },
+  'get-review-summary': { method: 'GET', path: '/api/review/summary', headers: {}, body: '{}' },
+  'get-drift': { method: 'GET', path: '/api/drift/summary', headers: {}, body: '{}' },
+  'get-compliance-pack': { method: 'GET', path: '/api/export/compliance-pack', headers: {}, body: '{}' },
+  'get-admin-status-latest': { method: 'GET', path: '/api/admin/backfill-status', headers: { ...adminJsonHeaders }, body: '{}' },
+  'get-admin-status-id': { method: 'GET', path: '/api/admin/backfill-status/paste-job-id-here', headers: { ...adminJsonHeaders }, body: '{}' },
+  'post-deidentify': {
+    method: 'POST',
+    path: '/api/deidentify',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text: 'Patient James Smith, DOB 04/12/1985, Phone (415) 555-9876, MRN302145.',
+      save: false
+    }, null, 2)
+  },
+  'post-anomaly': {
+    method: 'POST',
+    path: '/api/anomaly-scan',
+    headers: { 'Content-Type': 'application/json' },
+    body: anomalyScanBody
+  },
+  'post-readmission': {
+    method: 'POST',
+    path: '/api/predict-readmission',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: 1,
+      text: 'Patient with multiple comorbidities; prior admissions noted.',
+      entities: [{ label: 'PERSON' }, { label: 'DATE' }]
+    }, null, 2)
+  },
+  'post-review-decision': {
+    method: 'POST',
+    path: '/api/review/decision',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      note_id: 1,
+      decision: 'approved',
+      reviewer: 'api-explorer',
+      comments: ''
+    }, null, 2)
+  },
+  'post-backfill': {
+    method: 'POST',
+    path: '/api/admin/backfill-processed',
+    headers: { ...adminJsonHeaders },
+    body: JSON.stringify({ clear_existing: false, limit: 100 }, null, 2)
+  },
+  'post-notes-stub': {
+    method: 'POST',
+    path: '/api/notes',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ transcription: 'Sample note', medical_specialty: 'Cardiology' }, null, 2)
+  },
+  'post-process-stub': {
+    method: 'POST',
+    path: '/api/process',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note_id: 1 }, null, 2)
+  }
+};
+
+function applyEndpointPreset(key) {
+  const p = ENDPOINT_PRESETS[key];
+  if (!p) return;
+  methodEl.value = p.method;
+  endpointEl.value = p.path;
+  headersEl.value = JSON.stringify(p.headers, null, 2);
+  bodyEl.value = p.body;
+}
+
+presetEl.addEventListener('change', () => {
+  applyEndpointPreset(presetEl.value);
+});
+
+['input', 'change'].forEach((evt) => {
+  endpointEl.addEventListener(evt, () => {
+    if (presetEl.value && endpointEl.value.trim() !== ENDPOINT_PRESETS[presetEl.value].path) {
+      presetEl.value = '';
+    }
+  });
+});
+methodEl.addEventListener('change', () => {
+  if (!presetEl.value) return;
+  const p = ENDPOINT_PRESETS[presetEl.value];
+  if (p && methodEl.value !== p.method) presetEl.value = '';
+});
 
 async function sendRequest() {
   const method = methodEl.value;
@@ -201,7 +367,8 @@ async function sendRequest() {
     return;
   }
 
-  if (method === 'POST') {
+  const withJsonBody = ['POST', 'PUT', 'PATCH'];
+  if (withJsonBody.includes(method)) {
     if (!Object.keys(options.headers).some((k) => k.toLowerCase() === 'content-type')) {
       options.headers['Content-Type'] = 'application/json';
     }
@@ -210,6 +377,19 @@ async function sendRequest() {
     } catch {
       responseEl.textContent = 'Invalid JSON body';
       return;
+    }
+  } else if (method === 'DELETE') {
+    const raw = bodyEl.value.trim();
+    if (raw && raw !== '{}') {
+      if (!Object.keys(options.headers).some((k) => k.toLowerCase() === 'content-type')) {
+        options.headers['Content-Type'] = 'application/json';
+      }
+      try {
+        options.body = JSON.stringify(JSON.parse(raw));
+      } catch {
+        responseEl.textContent = 'Invalid JSON body';
+        return;
+      }
     }
   }
 
@@ -228,11 +408,13 @@ async function sendRequest() {
 
 document.getElementById('send').addEventListener('click', sendRequest);
 document.getElementById('sample-get').addEventListener('click', () => {
+  presetEl.value = '';
   methodEl.value = 'GET';
   endpointEl.value = '/api/stats';
   headersEl.value = JSON.stringify({}, null, 2);
 });
 document.getElementById('sample-post').addEventListener('click', () => {
+  presetEl.value = '';
   methodEl.value = 'POST';
   endpointEl.value = '/api/deidentify';
   headersEl.value = JSON.stringify({ "Content-Type": "application/json" }, null, 2);
