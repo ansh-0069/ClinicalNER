@@ -151,6 +151,10 @@ function setupStoryPin() {
         gsap.to(step, { opacity: 1, y: 0, duration: MOTION.storyEnter, ease: MOTION.ease });
         core.textContent = step.dataset.step;
       },
+      onEnterBack: () => {
+        gsap.to(step, { opacity: 1, y: 0, duration: MOTION.storyEnter, ease: MOTION.ease });
+        core.textContent = step.dataset.step;
+      },
       onLeaveBack: () => {
         gsap.to(step, { opacity: 0, y: 24, duration: MOTION.storyExit, ease: 'power2.inOut' });
       }

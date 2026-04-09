@@ -39,7 +39,6 @@ body {
     radial-gradient(1000px 560px at -18% 34%, rgba(67, 102, 255, 0.2), transparent 58%),
     var(--ink);
   color: var(--paper);
-  padding-bottom: 110px;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -470,39 +469,6 @@ textarea:focus {
   padding: 6px 10px;
 }
 
-.dock {
-  position: fixed;
-  left: 50%;
-  bottom: 18px;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  background: rgba(8, 10, 11, 0.84);
-  backdrop-filter: blur(14px);
-  z-index: 20;
-}
-
-.dock a {
-  text-decoration: none;
-  color: rgba(242, 244, 239, 0.62);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  padding: 9px 12px;
-  border: 1px solid transparent;
-  transition: all 0.2s var(--ease);
-}
-
-.dock a:hover,
-.dock a.active {
-  color: var(--paper);
-  border-color: rgba(200, 255, 69, 0.42);
-  background: rgba(200, 255, 69, 0.1);
-}
-
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -522,19 +488,11 @@ textarea:focus {
   .hero { padding-top: 5rem; }
   .stat-band { grid-template-columns: 1fr; }
   .matrix-grid { grid-template-columns: 1fr; }
-  .dock {
-    width: calc(100vw - 20px);
-    overflow-x: auto;
-    justify-content: flex-start;
-    left: 10px;
-    transform: none;
-    bottom: 10px;
-  }
-  .dock a { white-space: nowrap; }
 }
 </style>
 </head>
 <body>
+{% include "_ops_shell.html" %}
 <div class="noise-layer" aria-hidden="true"></div>
 
 <div class="shell">
@@ -660,14 +618,6 @@ textarea:focus {
   </section>
 </div>
 
-<nav class="dock" aria-label="Primary navigation">
-  <a href="/dashboard" class="active">Dashboard</a>
-  <a href="/stats">Stats</a>
-  <a href="/api-explorer">API</a>
-  <a href="/report/summary">Report</a>
-  <a href="/system-status">Status</a>
-</nav>
-
 <script>
 gsap.registerPlugin(ScrollTrigger);
 
@@ -783,31 +733,34 @@ function renderMatrix(stats) {
 }
 
 function setupStoryScroll() {
+  function activateStoryCard(card) {
+    gsap.to(card, { opacity: 1, y: 0, duration: MOTION.storyEnter, ease: MOTION.ease });
+    gsap.to(stepNum, {
+      opacity: 0,
+      y: -10,
+      duration: MOTION.swapFade,
+      onComplete: () => {
+        stepNum.textContent = card.dataset.step;
+        gsap.to(stepNum, { opacity: 1, y: 0, duration: MOTION.swapIn, ease: MOTION.ease });
+      }
+    });
+    gsap.to(stepTag, {
+      opacity: 0,
+      duration: MOTION.swapFade,
+      onComplete: () => {
+        stepTag.textContent = card.dataset.tag;
+        gsap.to(stepTag, { opacity: 1, duration: MOTION.swapIn, ease: MOTION.ease });
+      }
+    });
+  }
+
   document.querySelectorAll(".story-card").forEach((card) => {
     ScrollTrigger.create({
       trigger: card,
       start: "top 67%",
       end: "bottom 35%",
-      onEnter: () => {
-        gsap.to(card, { opacity: 1, y: 0, duration: MOTION.storyEnter, ease: MOTION.ease });
-        gsap.to(stepNum, {
-          opacity: 0,
-          y: -10,
-          duration: MOTION.swapFade,
-          onComplete: () => {
-            stepNum.textContent = card.dataset.step;
-            gsap.to(stepNum, { opacity: 1, y: 0, duration: MOTION.swapIn, ease: MOTION.ease });
-          }
-        });
-        gsap.to(stepTag, {
-          opacity: 0,
-          duration: MOTION.swapFade,
-          onComplete: () => {
-            stepTag.textContent = card.dataset.tag;
-            gsap.to(stepTag, { opacity: 1, duration: MOTION.swapIn, ease: MOTION.ease });
-          }
-        });
-      },
+      onEnter: () => activateStoryCard(card),
+      onEnterBack: () => activateStoryCard(card),
       onLeaveBack: () => {
         gsap.to(card, { opacity: 0, y: 36, duration: MOTION.storyExit, ease: "power2.inOut" });
       }
