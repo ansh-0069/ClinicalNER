@@ -343,7 +343,7 @@ Model behavior:
 | Flask / Django             | 5 REST routes, consistent HTTP status codes                      |
 | Docker                     | Production Dockerfile, HEALTHCHECK, gunicorn                     |
 | Cloud deployment           | Docker-ready, gunicorn WSGI server                               |
-| Test coverage              | 269 tests, 70%+ line coverage on `src/`                          |
+| Test coverage              | 269 tests, 70%+ line coverage on `src/`                        |
 
 ---
 
