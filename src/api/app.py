@@ -1303,7 +1303,7 @@ def _register_ui_routes(app: Flask) -> None:
   @app.route("/")
   def home():
     """Primary frontend landing page."""
-    return render_template("dashboard_new.html", active_page="dashboard")
+    return render_template("dashboard.html", active_page="dashboard")
 
   @app.route("/dashboard")
   def dashboard():
@@ -1311,7 +1311,7 @@ def _register_ui_routes(app: Flask) -> None:
     Live EDA dashboard â€” renders stats as interactive charts.
     Uses Chart.js loaded from CDN, data fetched from /api/stats.
     """
-    return render_template("dashboard_new.html", active_page="dashboard")
+    return render_template("dashboard.html", active_page="dashboard")
 
   @app.route("/stats")
   def stats_page():

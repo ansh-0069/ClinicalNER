@@ -7,9 +7,7 @@ on:
 
 env:
   PYTHON_VERSION: "3.11"
-  SPACY_MODEL_URL: >-
-    https://github.com/explosion/spacy-models/releases/download/
-    en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
+  SPACY_MODEL_URL: https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
   # Quality-gate thresholds (matches DATA_QUALITY_PLAN.md)
   # Aligned with span-level evaluation on the built-in 30-note set (strict matching).
   F1_MIN: "0.80"
