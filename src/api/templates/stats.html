@@ -309,6 +309,7 @@ function animateCount(id, target) {
 
 function reveal() {
   gsap.utils.toArray('.animate-up').forEach((el) => {
+    if (el.classList.contains('hero')) return;
     gsap.fromTo(el, { opacity: 0, y: MOTION.revealY }, {
       opacity: 1,
       y: 0,

@@ -164,6 +164,7 @@ function setupStoryPin() {
 }
 
 gsap.utils.toArray('.animate-up').forEach((el) => {
+  if (el.classList.contains('hero')) return;
   gsap.fromTo(el, { opacity: 0, y: MOTION.revealY }, { opacity: 1, y: 0, duration: MOTION.revealDuration, ease: MOTION.ease, scrollTrigger: { trigger: el, start: MOTION.revealStart, once: true } });
 });
 
