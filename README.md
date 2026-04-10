@@ -31,7 +31,7 @@ https://clinicalner-ansh.azurewebsites.net/
 | Raw Summary JSON | https://clinicalner-ansh.azurewebsites.net/api/report/summary |
 | Health probe     | https://clinicalner-ansh.azurewebsites.net/health             |
 
-**ML Lab** (`/ml-lab`) is a tabbed page that names each implementation (spaCy, regex, IsolationForest, readmission scorer, offline XGBoost) and runs the live de-ID, anomaly, and readmission API calls from the browser.
+**ML Lab** (`/ml-lab`) is a tabbed page that names each implementation (spaCy, regex, IsolationForest, readmission scorer) and runs the live de-ID, anomaly, and readmission API calls from the browser. Optional tabular XGBoost (`ClinicalRiskModel`) remains available via `/api/clinical-risk-model/*` when a pickle is deployed, not in this UI.
 
 ---
 

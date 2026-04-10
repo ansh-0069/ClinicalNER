@@ -96,3 +96,17 @@ def test_predict_readmission_batch_notes(client):
 def test_predict_readmission_requires_json(client):
 	res = client.post("/api/predict-readmission", data="plain-text")
 	assert res.status_code == 400
+
+
+def test_predict_readmission_without_processed_notes_table_returns_400():
+	"""Unfitted predictor + no processed_notes must not return 500 from raw SQL error."""
+	from src.api.app import create_app
+
+	app = create_app(db_path=":memory:")
+	app.config["TESTING"] = True
+	# Leave PREDICTOR unfitted; in-memory DB has no processed_notes table.
+	with app.test_client() as c:
+		res = c.post("/api/predict-readmission", json=make_note(note_id=1))
+	assert res.status_code == 400
+	data = res.get_json()
+	assert "processed_notes" in data.get("error", "").lower()

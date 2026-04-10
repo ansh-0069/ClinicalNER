@@ -1207,6 +1207,15 @@ def _register_api_routes(app: Flask) -> None:
       data = request.get_json()
 
       if not predictor.is_fitted:
+          if not _table_exists("processed_notes"):
+              return jsonify({
+                  "error": (
+                      "Table processed_notes does not exist yet. The readmission predictor fits on saved "
+                      "de-identification results. Create it by running NER with save (POST /api/deidentify "
+                      "with save: true), run_phase2.py, or an admin processed-notes backfill — then call again."
+                  ),
+                  "status": 400,
+              }), 400
           try:
               import json as _json
               # Columns must match processed_notes schema (see ner_pipeline._save_processed).
