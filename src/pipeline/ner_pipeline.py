@@ -415,6 +415,7 @@ class NERPipeline:
           masked_text       TEXT     ← de-identified note
           entity_count      INTEGER
           entity_types_json TEXT     ← JSON dict of label→count
+          avg_confidence    REAL     ← mean NER confidence (0 if no entities)
           processed_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         """
         import json
@@ -428,25 +429,27 @@ class NERPipeline:
                 processed_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """
-        sql_migrate = """
-            ALTER TABLE processed_notes ADD COLUMN masked_text TEXT
-        """
         sql_insert = """
             INSERT INTO processed_notes
-                (note_id, masked_text, entity_count, entity_types_json)
-            VALUES (?, ?, ?, ?)
+                (note_id, masked_text, entity_count, entity_types_json, avg_confidence)
+            VALUES (?, ?, ?, ?, ?)
         """
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(sql_create)
-            try:
-                conn.execute(sql_migrate)
-            except sqlite3.OperationalError:
-                pass  # column already exists
+            for alter in (
+                "ALTER TABLE processed_notes ADD COLUMN masked_text TEXT",
+                "ALTER TABLE processed_notes ADD COLUMN avg_confidence REAL",
+            ):
+                try:
+                    conn.execute(alter)
+                except sqlite3.OperationalError:
+                    pass  # column already exists
             conn.execute(sql_insert, (
                 result["note_id"],
                 result["masked_text"],
                 result["entity_count"],
                 json.dumps(result["entity_types"]),
+                float(result.get("avg_confidence") or 0.0),
             ))
 
     # ── Private: spaCy loader ─────────────────────────────────────────────────

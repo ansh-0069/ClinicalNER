@@ -1191,8 +1191,9 @@ def _register_api_routes(app: Flask) -> None:
       if not predictor.is_fitted:
           try:
               import json as _json
+              # Columns must match processed_notes schema (see ner_pipeline._save_processed).
               df = loader.sql_query(
-                  "SELECT note_id, masked_text, entity_types_json, avg_confidence "
+                  "SELECT note_id, masked_text, entity_types_json "
                   "FROM processed_notes WHERE entity_types_json IS NOT NULL LIMIT 2000"
               )
               if len(df) < 50:
