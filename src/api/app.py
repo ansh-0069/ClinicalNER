@@ -1330,6 +1330,11 @@ def _register_ui_routes(app: Flask) -> None:
     """Interactive API explorer page."""
     return render_template("api_explorer.html", active_page="api")
 
+  @app.route("/ml-lab")
+  def ml_lab():
+    """Tabbed UI: which ML/statistical components exist and live API demos."""
+    return render_template("ml_lab.html", active_page="ml")
+
   @app.route("/review-queue")
   def review_queue_page():
     """Human-in-the-loop review queue page for high-risk notes."""

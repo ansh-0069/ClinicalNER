@@ -280,6 +280,23 @@ class TestDashboard:
 
 
 # ═══════════════════════════════════════════════════════════════
+# GET /ml-lab
+# ═══════════════════════════════════════════════════════════════
+
+class TestMlLab:
+
+    def test_ml_lab_returns_200(self, client):
+        r = client.get("/ml-lab")
+        assert r.status_code == 200
+
+    def test_ml_lab_documents_pipeline(self, client):
+        r = client.get("/ml-lab")
+        assert b"ML Lab" in r.data
+        assert b"en_core_web_sm" in r.data
+        assert b"IsolationForest" in r.data
+
+
+# ═══════════════════════════════════════════════════════════════
 # GET /report/<note_id>
 # ═══════════════════════════════════════════════════════════════
 

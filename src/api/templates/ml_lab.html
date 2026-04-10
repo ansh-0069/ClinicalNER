@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClinicalNER · ML Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300..900&family=IBM+Plex+Mono:wght@300;400;500;600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --ink: #060708;
+  --paper: #f2f4ef;
+  --line: rgba(242, 244, 239, 0.14);
+  --muted: rgba(242, 244, 239, 0.62);
+  --signal: #c8ff45;
+  --soft: rgba(200, 255, 69, 0.12);
+  --mono: "IBM Plex Mono", monospace;
+  --display: "Fraunces", Georgia, serif;
+  --sans: "Instrument Sans", "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--sans);
+  background:
+    radial-gradient(1200px 700px at 85% -10%, rgba(200, 255, 69, 0.12), transparent 62%),
+    radial-gradient(1000px 500px at -12% 30%, rgba(82, 114, 255, 0.14), transparent 58%),
+    var(--ink);
+  color: var(--paper);
+  padding: 5rem 5vw 3rem;
+}
+.hero { max-width: 72ch; margin-bottom: 28px; }
+.hero .tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--signal);
+}
+.hero h1 {
+  margin-top: 10px;
+  font-family: var(--display);
+  font-size: clamp(32px, 5vw, 56px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+.hero p { margin-top: 12px; color: var(--muted); line-height: 1.65; }
+
+.ml-tablist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+}
+.ml-tablist button {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  background: rgba(10, 12, 13, 0.9);
+  color: rgba(242, 244, 239, 0.72);
+  cursor: pointer;
+}
+.ml-tablist button:hover { border-color: rgba(200, 255, 69, 0.4); color: var(--paper); }
+.ml-tablist button[aria-selected="true"] {
+  border-color: rgba(200, 255, 69, 0.55);
+  background: var(--soft);
+  color: var(--paper);
+}
+
+.ml-panel { display: none; }
+.ml-panel.is-active { display: block; }
+
+.card {
+  border: 1px solid var(--line);
+  background: rgba(10, 12, 13, 0.95);
+  padding: 22px 20px;
+  margin-bottom: 18px;
+}
+.card h2 {
+  font-family: var(--display);
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  margin-bottom: 12px;
+}
+.card h3 {
+  font-family: var(--display);
+  font-size: 17px;
+  margin: 18px 0 10px;
+  color: rgba(242, 244, 239, 0.92);
+}
+.model-pill {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border: 1px solid rgba(200, 255, 69, 0.35);
+  color: var(--signal);
+  margin-bottom: 12px;
+}
+.accurate-list {
+  margin: 10px 0 10px 1.2rem;
+  color: var(--muted);
+  line-height: 1.7;
+  font-size: 14px;
+}
+.accurate-list li { margin-bottom: 6px; }
+.accurate-list code {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: rgba(242, 244, 239, 0.88);
+}
+.note-box {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-left: 3px solid rgba(200, 255, 69, 0.45);
+  background: rgba(200, 255, 69, 0.06);
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+label.lbl {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(242, 244, 239, 0.45);
+  margin: 14px 0 8px;
+}
+textarea, input[type="text"] {
+  width: 100%;
+  background: rgba(15, 18, 19, 0.92);
+  border: 1px solid var(--line);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 12px;
+  line-height: 1.55;
+  outline: none;
+}
+textarea { min-height: 140px; resize: vertical; }
+textarea.tall { min-height: 220px; }
+
+.btn-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+button.btn {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  padding: 11px 16px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--paper);
+  cursor: pointer;
+}
+button.btn:hover { border-color: rgba(200, 255, 69, 0.5); background: var(--soft); }
+button.btn-primary {
+  background: var(--signal);
+  color: #101410;
+  border-color: transparent;
+  font-weight: 700;
+}
+
+.out {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: rgba(8, 10, 11, 0.92);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 420px;
+  overflow: auto;
+}
+.out.err { border-color: rgba(255, 120, 120, 0.35); color: #ffb3b3; }
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.metric {
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  background: rgba(9, 11, 12, 0.95);
+}
+.metric .k {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(242, 244, 239, 0.45);
+}
+.metric .v {
+  margin-top: 6px;
+  font-family: var(--display);
+  font-size: 20px;
+  color: var(--signal);
+}
+
+@media (max-width: 760px) {
+  .ml-tablist { flex-direction: column; }
+  .ml-tablist button { text-align: left; }
+}
+</style>
+</head>
+<body>
+{% include "_ops_shell.html" %}
+
+<section class="hero">
+  <div class="tag">Model transparency</div>
+  <h1>ML Lab</h1>
+  <p>Each tab states which implementation is used in this repository (not marketing names). Live tabs call the same Flask routes as production; responses are shown unedited.</p>
+</section>
+
+<div class="ml-tablist" role="tablist" aria-label="ML components">
+  <button type="button" role="tab" id="tab-phi" aria-controls="panel-phi" aria-selected="true" data-tab="phi">De-ID · spaCy + regex</button>
+  <button type="button" role="tab" id="tab-anom" aria-controls="panel-anom" aria-selected="false" data-tab="anom">Anomaly · IsolationForest</button>
+  <button type="button" role="tab" id="tab-readm" aria-controls="panel-readm" aria-selected="false" data-tab="readm">Risk · ReadmissionPredictor</button>
+  <button type="button" role="tab" id="tab-xgb" aria-controls="panel-xgb" aria-selected="false" data-tab="xgb">Tabular · XGBoost (offline)</button>
+</div>
+
+<section id="panel-phi" class="ml-panel is-active" role="tabpanel" aria-labelledby="tab-phi" aria-hidden="false">
+  <div class="card">
+    <span class="model-pill">Implementation · src/pipeline/ner_pipeline.py</span>
+    <h2>PHI detection &amp; masking</h2>
+    <ul class="accurate-list">
+      <li><strong>Regex layer</strong> — Not ML. Compiled patterns for structured PHI (e.g. <code>DATE</code>, <code>PHONE</code>, <code>MRN</code>, <code>DOB</code>, <code>AGE</code>, many <code>HOSPITAL</code> name forms).</li>
+      <li><strong>spaCy</strong> — Pretrained English pipeline <code>en_core_web_sm</code> (statistical NER). Labels mapped to your schema: <code>PERSON</code>; <code>ORG</code>/<code>FAC</code> → <code>HOSPITAL</code>; <code>GPE</code>/<code>LOC</code> → <code>LOCATION</code>.</li>
+      <li>Spans merged with <strong>longest-wins</strong> overlap resolution, then replaced (e.g. <code>[PERSON]</code>) per <code>mask_style</code>.</li>
+      <li><strong>API:</strong> <code>POST /api/deidentify</code> — same path as the dashboard demo (plus optional file upload elsewhere).</li>
+    </ul>
+    <div class="note-box">This is a <strong>hybrid</strong> system: regex for format-driven identifiers, spaCy for context-driven names and places. It is not a single end-to-end transformer model.</div>
+
+    <h3>Run de-identification</h3>
+    <label class="lbl" for="deid-text">Clinical text</label>
+    <textarea id="deid-text" spellcheck="false">Patient James Smith, DOB 04/12/1985. Phone (415) 555-9876. MRN302145. Admitted to St. Mary's Hospital.</textarea>
+    <div class="btn-row" style="align-items:center">
+      <button type="button" class="btn btn-primary" id="deid-run">POST /api/deidentify</button>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--muted);">
+        <input type="checkbox" id="deid-save" checked />
+        <span>Save result to database (<code>save: true</code> in JSON)</span>
+      </label>
+    </div>
+    <div class="metric-row" id="deid-metrics" hidden>
+      <div class="metric"><div class="k">Entities</div><div class="v" id="deid-entity-count">—</div></div>
+      <div class="metric"><div class="k">Avg confidence</div><div class="v" id="deid-avg-conf">—</div></div>
+    </div>
+    <pre class="out" id="deid-out">Click the button to call the API. Response JSON appears here.</pre>
+  </div>
+</section>
+
+<section id="panel-anom" class="ml-panel" role="tabpanel" aria-labelledby="tab-anom" aria-hidden="true">
+  <div class="card">
+    <span class="model-pill">Implementation · sklearn · src/pipeline/anomaly_detector.py</span>
+    <h2>Batch anomaly scoring</h2>
+    <ul class="accurate-list">
+      <li><strong>Model:</strong> <code>sklearn.ensemble.IsolationForest</code> (<code>n_estimators=100</code>, <code>contamination=0.05</code>, fixed random seed).</li>
+      <li><strong>Preprocessing:</strong> <code>sklearn.preprocessing.StandardScaler</code> fit on the submitted batch.</li>
+      <li><strong>Features (9):</strong> <code>phi_count</code>, <code>phi_density</code>, <code>text_length</code>, <code>date_count</code>, <code>person_count</code>, <code>phone_count</code>, <code>mrn_count</code>, <code>hospital_count</code>, <code>label_diversity</code>.</li>
+      <li><strong>API behaviour:</strong> Each <code>POST /api/anomaly-scan</code> call <strong>fits</strong> scaler + forest on the <strong>notes in the request</strong> (minimum 10), then scores those same notes — not a single long-lived production model.</li>
+    </ul>
+
+    <h3>Request body (JSON)</h3>
+    <label class="lbl" for="anom-body">Field <code>notes</code>: array of strings or objects with <code>text</code> / <code>entities</code></label>
+    <textarea id="anom-body" class="tall" spellcheck="false"></textarea>
+    <div class="btn-row">
+      <button type="button" class="btn" id="anom-sample">Load 10-note sample</button>
+      <button type="button" class="btn btn-primary" id="anom-run">POST /api/anomaly-scan</button>
+    </div>
+    <pre class="out" id="anom-out">Load sample or paste JSON, then send.</pre>
+  </div>
+</section>
+
+<section id="panel-readm" class="ml-panel" role="tabpanel" aria-labelledby="tab-readm" aria-hidden="true">
+  <div class="card">
+    <span class="model-pill">Implementation · src/pipeline/readmission_predictor.py</span>
+    <h2>Readmission-style risk score</h2>
+    <ul class="accurate-list">
+      <li><strong>Not XGBoost.</strong> This class does <strong>not</strong> use gradient boosting. It derives features from each note (PHI counts, density, text length, label diversity, etc.), then compares them to <strong>means and standard deviations</strong> computed from the training corpus.</li>
+      <li><strong>Score:</strong> Weighted sum of z-scores → sigmoid → <code>risk_score</code> in <code>[0,1]</code>; <code>risk_level</code> is low / medium / high by fixed thresholds.</li>
+      <li><strong>First use:</strong> If the predictor is not fitted, the API loads up to 2000 rows from <code>processed_notes</code> and requires <strong>at least 50</strong> usable notes to fit — otherwise returns 400 with an explicit error.</li>
+      <li><strong>API:</strong> <code>POST /api/predict-readmission</code> with a JSON note object or <code>{ "notes": [ ... ] }</code> for batch.</li>
+    </ul>
+    <div class="note-box">For a <strong>supervised XGBoost</strong> readmission model trained on tabular claims-like data, see the fourth tab — that code path is separate and not mounted on this API.</div>
+
+    <h3>Request body (single note)</h3>
+    <textarea id="readm-body" class="tall" spellcheck="false"></textarea>
+    <div class="btn-row">
+      <button type="button" class="btn" id="readm-sample">Load sample note JSON</button>
+      <button type="button" class="btn btn-primary" id="readm-run">POST /api/predict-readmission</button>
+    </div>
+    <pre class="out" id="readm-out">Send to see live API JSON (errors from the server are shown verbatim).</pre>
+  </div>
+</section>
+
+<section id="panel-xgb" class="ml-panel" role="tabpanel" aria-labelledby="tab-xgb" aria-hidden="true">
+  <div class="card">
+    <span class="model-pill">Implementation · src/models/clinical_risk_model.py</span>
+    <h2>Tabular readmission (XGBoost)</h2>
+    <ul class="accurate-list">
+      <li><strong>Model:</strong> <code>xgboost.XGBClassifier</code> (gradient boosted trees), wrapped as <code>ClinicalRiskModel</code>.</li>
+      <li><strong>Data:</strong> Expects CSV such as <code>data/raw/diabetic_data.csv</code>; target derived from column <code>readmitted</code> (positive class <code>&lt;30</code> day readmission).</li>
+      <li><strong>Features:</strong> Built via <code>src/models/feature_engineer.py</code> (fit/transform on tabular columns — not the same as the NLP note JSON used above).</li>
+      <li><strong>Deployment status:</strong> There is <strong>no</strong> Flask route in this app that loads <code>ClinicalRiskModel</code>. Training/save/load are script-driven (e.g. <code>model.train(...)</code>, <code>model.save(...)</code>).</li>
+    </ul>
+    <div class="note-box">To showcase this model in the browser you would add a new endpoint that loads the pickle and accepts tabular JSON or CSV — that is intentionally out of scope here so we do not imply a validated clinical deployment.</div>
+  </div>
+</section>
+
+<script>
+(function () {
+  const tabs = document.querySelectorAll('.ml-tablist button[role="tab"]');
+  const panels = {
+    phi: document.getElementById('panel-phi'),
+    anom: document.getElementById('panel-anom'),
+    readm: document.getElementById('panel-readm'),
+    xgb: document.getElementById('panel-xgb'),
+  };
+
+  function activate(name) {
+    Object.keys(panels).forEach((key) => {
+      const p = panels[key];
+      const on = key === name;
+      p.classList.toggle('is-active', on);
+      p.setAttribute('aria-hidden', on ? 'false' : 'true');
+    });
+    tabs.forEach((btn) => {
+      const on = btn.dataset.tab === name;
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+  }
+
+  tabs.forEach((btn) => {
+    btn.addEventListener('click', () => activate(btn.dataset.tab));
+  });
+
+  const ANOMALY_SAMPLE = {
+    notes: Array.from({ length: 10 }, (_, i) =>
+      `Clinical note ${i + 1}: Patient MRN ${8000 + i}, DOB 01/${String(i + 1).padStart(2, '0')}/1980. Phone (415) 555-${String(1000 + i).slice(-4)}. St. Vincent Hospital follow-up.`
+    )
+  };
+
+  const READM_SAMPLE = {
+    id: 1,
+    text: 'Patient with hypertension and prior admission; multiple PHI markers in narrative.',
+    entities: [{ label: 'PERSON' }, { label: 'DATE' }, { label: 'MRN' }, { label: 'PHONE' }]
+  };
+
+  document.getElementById('anom-body').value = JSON.stringify(ANOMALY_SAMPLE, null, 2);
+  document.getElementById('readm-body').value = JSON.stringify(READM_SAMPLE, null, 2);
+
+  function setOut(el, text, isErr) {
+    el.textContent = text;
+    el.classList.toggle('err', !!isErr);
+  }
+
+  document.getElementById('deid-run').addEventListener('click', async () => {
+    const out = document.getElementById('deid-out');
+    const text = document.getElementById('deid-text').value.trim();
+    if (!text) {
+      setOut(out, 'Enter some text first.', true);
+      return;
+    }
+    const save = document.getElementById('deid-save').checked;
+    setOut(out, 'Request in progress…', false);
+    try {
+      const res = await fetch('/api/deidentify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, save })
+      });
+      const data = await res.json();
+      const pretty = JSON.stringify(data, null, 2);
+      setOut(out, pretty, !res.ok);
+      const mm = document.getElementById('deid-metrics');
+      if (res.ok && typeof data.entity_count === 'number') {
+        mm.hidden = false;
+        document.getElementById('deid-entity-count').textContent = String(data.entity_count);
+        document.getElementById('deid-avg-conf').textContent =
+          data.avg_confidence != null ? String(data.avg_confidence) : '—';
+      } else {
+        mm.hidden = true;
+      }
+    } catch (e) {
+      setOut(out, String(e), true);
+    }
+  });
+
+  document.getElementById('anom-sample').addEventListener('click', () => {
+    document.getElementById('anom-body').value = JSON.stringify(ANOMALY_SAMPLE, null, 2);
+  });
+
+  document.getElementById('anom-run').addEventListener('click', async () => {
+    const out = document.getElementById('anom-out');
+    let body;
+    try {
+      body = JSON.parse(document.getElementById('anom-body').value);
+    } catch (e) {
+      setOut(out, 'Invalid JSON: ' + e.message, true);
+      return;
+    }
+    setOut(out, 'Request in progress…', false);
+    try {
+      const res = await fetch('/api/anomaly-scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      setOut(out, JSON.stringify(data, null, 2), !res.ok);
+    } catch (e) {
+      setOut(out, String(e), true);
+    }
+  });
+
+  document.getElementById('readm-sample').addEventListener('click', () => {
+    document.getElementById('readm-body').value = JSON.stringify(READM_SAMPLE, null, 2);
+  });
+
+  document.getElementById('readm-run').addEventListener('click', async () => {
+    const out = document.getElementById('readm-out');
+    let body;
+    try {
+      body = JSON.parse(document.getElementById('readm-body').value);
+    } catch (e) {
+      setOut(out, 'Invalid JSON: ' + e.message, true);
+      return;
+    }
+    setOut(out, 'Request in progress…', false);
+    try {
+      const res = await fetch('/api/predict-readmission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      setOut(out, JSON.stringify(data, null, 2), !res.ok);
+    } catch (e) {
+      setOut(out, String(e), true);
+    }
+  });
+})();
+</script>
+</body>
+</html>

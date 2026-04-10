@@ -25,10 +25,13 @@ https://clinicalner-ansh.azurewebsites.net/
 | Dashboard        | https://clinicalner-ansh.azurewebsites.net/dashboard          |
 | Stats            | https://clinicalner-ansh.azurewebsites.net/stats              |
 | API Explorer     | https://clinicalner-ansh.azurewebsites.net/api-explorer       |
+| ML Lab           | https://clinicalner-ansh.azurewebsites.net/ml-lab             |
 | System Status    | https://clinicalner-ansh.azurewebsites.net/system-status      |
 | Report Summary   | https://clinicalner-ansh.azurewebsites.net/report/summary     |
 | Raw Summary JSON | https://clinicalner-ansh.azurewebsites.net/api/report/summary |
 | Health probe     | https://clinicalner-ansh.azurewebsites.net/health             |
+
+**ML Lab** (`/ml-lab`) is a tabbed page that names each implementation (spaCy, regex, IsolationForest, readmission scorer, offline XGBoost) and runs the live de-ID, anomaly, and readmission API calls from the browser.
 
 ---
 
