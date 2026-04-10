@@ -227,7 +227,7 @@ button.btn-primary {
   <button type="button" role="tab" id="tab-phi" aria-controls="panel-phi" aria-selected="true" data-tab="phi">De-ID · spaCy + regex</button>
   <button type="button" role="tab" id="tab-anom" aria-controls="panel-anom" aria-selected="false" data-tab="anom">Anomaly · IsolationForest</button>
   <button type="button" role="tab" id="tab-readm" aria-controls="panel-readm" aria-selected="false" data-tab="readm">Risk · ReadmissionPredictor</button>
-  <button type="button" role="tab" id="tab-xgb" aria-controls="panel-xgb" aria-selected="false" data-tab="xgb">Tabular · XGBoost (offline)</button>
+  <button type="button" role="tab" id="tab-xgb" aria-controls="panel-xgb" aria-selected="false" data-tab="xgb">Tabular · XGBoost (ClinicalRiskModel)</button>
 </div>
 
 <section id="panel-phi" class="ml-panel is-active" role="tabpanel" aria-labelledby="tab-phi" aria-hidden="false">
@@ -292,7 +292,7 @@ button.btn-primary {
       <li><strong>First use:</strong> If the predictor is not fitted, the API loads up to 2000 rows from <code>processed_notes</code> and requires <strong>at least 50</strong> usable notes to fit — otherwise returns 400 with an explicit error.</li>
       <li><strong>API:</strong> <code>POST /api/predict-readmission</code> with a JSON note object or <code>{ "notes": [ ... ] }</code> for batch.</li>
     </ul>
-    <div class="note-box">For a <strong>supervised XGBoost</strong> readmission model trained on tabular claims-like data, see the fourth tab — that code path is separate and not mounted on this API.</div>
+    <div class="note-box">For <strong>supervised XGBoost</strong> on Diabetes-130-style columns, use the fourth tab — <code>POST /api/clinical-risk-model/predict</code> — only when a pickle is loaded (see status endpoint).</div>
 
     <h3>Request body (single note)</h3>
     <textarea id="readm-body" class="tall" spellcheck="false"></textarea>
@@ -309,12 +309,27 @@ button.btn-primary {
     <span class="model-pill">Implementation · src/models/clinical_risk_model.py</span>
     <h2>Tabular readmission (XGBoost)</h2>
     <ul class="accurate-list">
-      <li><strong>Model:</strong> <code>xgboost.XGBClassifier</code> (gradient boosted trees), wrapped as <code>ClinicalRiskModel</code>.</li>
-      <li><strong>Data:</strong> Expects CSV such as <code>data/raw/diabetic_data.csv</code>; target derived from column <code>readmitted</code> (positive class <code>&lt;30</code> day readmission).</li>
-      <li><strong>Features:</strong> Built via <code>src/models/feature_engineer.py</code> (fit/transform on tabular columns — not the same as the NLP note JSON used above).</li>
-      <li><strong>Deployment status:</strong> There is <strong>no</strong> Flask route in this app that loads <code>ClinicalRiskModel</code>. Training/save/load are script-driven (e.g. <code>model.train(...)</code>, <code>model.save(...)</code>).</li>
+      <li><strong>Model:</strong> <code>xgboost.XGBClassifier</code> via <code>ClinicalRiskModel</code>; artifact path at startup: <code>CLINICAL_RISK_MODEL_PATH</code> or <code>data/models/clinical_risk_model.pkl</code>.</li>
+      <li><strong>Training data:</strong> CSV like <code>data/raw/diabetic_data.csv</code>; target <code>readmitted</code> with positive class <code>&lt;30</code>.</li>
+      <li><strong>Features:</strong> <code>src/models/feature_engineer.py</code> — not interchangeable with the NLP note JSON in tab 3.</li>
+      <li><strong>API:</strong> <code>GET /api/clinical-risk-model/status</code> (loaded + eval snapshot), <code>POST /api/clinical-risk-model/predict</code> with <code>{ "records": [ { …row… }, … ] }</code>.</li>
     </ul>
-    <div class="note-box">To showcase this model in the browser you would add a new endpoint that loads the pickle and accepts tabular JSON or CSV — that is intentionally out of scope here so we do not imply a validated clinical deployment.</div>
+    <div class="note-box">Demo only: scores are not validated for clinical decisions. If status shows <code>loaded: false</code>, train and save a pickle or point <code>CLINICAL_RISK_MODEL_PATH</code> at an existing file and restart the app.</div>
+
+    <h3>Model status</h3>
+    <div class="btn-row">
+      <button type="button" class="btn btn-primary" id="xgb-status">GET /api/clinical-risk-model/status</button>
+    </div>
+    <pre class="out" id="xgb-status-out">Open this tab and refresh status to see whether the artifact loaded.</pre>
+
+    <h3>Predict (tabular rows)</h3>
+    <label class="lbl" for="xgb-body">JSON body — field <code>records</code>: array of Diabetes-130-style objects (omit or include <code>readmitted</code>; it is ignored)</label>
+    <textarea id="xgb-body" class="tall" spellcheck="false"></textarea>
+    <div class="btn-row">
+      <button type="button" class="btn" id="xgb-sample">Load 1-row sample</button>
+      <button type="button" class="btn btn-primary" id="xgb-run">POST /api/clinical-risk-model/predict</button>
+    </div>
+    <pre class="out" id="xgb-out">Status must show <code>loaded: true</code> or predict returns 503.</pre>
   </div>
 </section>
 
@@ -339,6 +354,9 @@ button.btn-primary {
       const on = btn.dataset.tab === name;
       btn.setAttribute('aria-selected', on ? 'true' : 'false');
     });
+    if (name === 'xgb') {
+      document.getElementById('xgb-status').click();
+    }
   }
 
   tabs.forEach((btn) => {
@@ -357,8 +375,48 @@ button.btn-primary {
     entities: [{ label: 'PERSON' }, { label: 'DATE' }, { label: 'MRN' }, { label: 'PHONE' }]
   };
 
+  const XGB_SAMPLE = {
+    records: [{
+      encounter_id: 1,
+      patient_nbr: 101,
+      race: 'Caucasian',
+      gender: 'Male',
+      age: '[50-60)',
+      weight: '?',
+      admission_type_id: 1,
+      discharge_disposition_id: 1,
+      admission_source_id: 7,
+      time_in_hospital: 3,
+      payer_code: 'MC',
+      medical_specialty: 'Cardiology',
+      num_lab_procedures: 40,
+      num_procedures: 1,
+      num_medications: 10,
+      number_outpatient: 0,
+      number_emergency: 0,
+      number_inpatient: 1,
+      diag_1: '250.01',
+      diag_2: '401.9',
+      diag_3: '272.4',
+      number_diagnoses: 7,
+      max_glu_serum: 'None',
+      A1Cresult: 'None',
+      metformin: 'No',
+      insulin: 'Steady',
+      glipizide: 'No',
+      glyburide: 'No',
+      pioglitazone: 'No',
+      rosiglitazone: 'No',
+      diabetesMed: 'Yes',
+      change: 'Ch',
+      examide: 'No',
+      citoglipton: 'No'
+    }]
+  };
+
   document.getElementById('anom-body').value = JSON.stringify(ANOMALY_SAMPLE, null, 2);
   document.getElementById('readm-body').value = JSON.stringify(READM_SAMPLE, null, 2);
+  document.getElementById('xgb-body').value = JSON.stringify(XGB_SAMPLE, null, 2);
 
   function setOut(el, text, isErr) {
     el.textContent = text;
@@ -440,6 +498,45 @@ button.btn-primary {
     setOut(out, 'Request in progress…', false);
     try {
       const res = await fetch('/api/predict-readmission', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      setOut(out, JSON.stringify(data, null, 2), !res.ok);
+    } catch (e) {
+      setOut(out, String(e), true);
+    }
+  });
+
+  document.getElementById('xgb-status').addEventListener('click', async () => {
+    const out = document.getElementById('xgb-status-out');
+    setOut(out, 'Request in progress…', false);
+    try {
+      const res = await fetch('/api/clinical-risk-model/status');
+      const data = await res.json();
+      setOut(out, JSON.stringify(data, null, 2), !res.ok);
+    } catch (e) {
+      setOut(out, String(e), true);
+    }
+  });
+
+  document.getElementById('xgb-sample').addEventListener('click', () => {
+    document.getElementById('xgb-body').value = JSON.stringify(XGB_SAMPLE, null, 2);
+  });
+
+  document.getElementById('xgb-run').addEventListener('click', async () => {
+    const out = document.getElementById('xgb-out');
+    let body;
+    try {
+      body = JSON.parse(document.getElementById('xgb-body').value);
+    } catch (e) {
+      setOut(out, 'Invalid JSON: ' + e.message, true);
+      return;
+    }
+    setOut(out, 'Request in progress…', false);
+    try {
+      const res = await fetch('/api/clinical-risk-model/predict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)

@@ -11,6 +11,8 @@ Routes
   GET  /dashboard               â€” live EDA + audit dashboard (HTML)
   GET  /report/<note_id>        â€” before/after diff view (HTML)
   GET  /health                  â€” liveness probe (for Docker/cloud)
+  GET  /api/clinical-risk-model/status   â€” optional XGBoost artifact (tabular)
+  POST /api/clinical-risk-model/predict  â€” score Diabetes-130-style JSON rows
 
 Design decisions:
   - Application factory pattern (create_app()) â€” standard Flask practice,
@@ -50,6 +52,7 @@ from src.pipeline.data_cleaner import DataCleaner
 from src.pipeline.audit_logger import AuditLogger, EventType
 from src.pipeline.anomaly_detector import AnomalyDetector
 from src.pipeline.readmission_predictor import ReadmissionPredictor
+from src.models.clinical_risk_model import ClinicalRiskModel
 from src.utils.text_extractor import extract as extract_document_text
 
 logger = logging.getLogger(__name__)
@@ -86,6 +89,21 @@ def create_app(db_path: str | None = None) -> Flask:
     app.config["AUDIT"]    = AuditLogger(db_path=resolved_db_path)
     app.config["DETECTOR"] = AnomalyDetector(contamination=0.05)
     app.config["PREDICTOR"] = ReadmissionPredictor()
+    _project_root = Path(__file__).resolve().parents[2]
+    _crm_raw = (os.getenv("CLINICAL_RISK_MODEL_PATH") or "data/models/clinical_risk_model.pkl").strip()
+    _crm_path = Path(_crm_raw)
+    clinical_risk_abs = str(_crm_path if _crm_path.is_absolute() else (_project_root / _crm_path))
+    app.config["CLINICAL_RISK_MODEL_PATH"] = clinical_risk_abs
+    app.config["CLINICAL_RISK_MODEL"] = None
+    _crm_file = Path(clinical_risk_abs)
+    if _crm_file.is_file():
+        try:
+            app.config["CLINICAL_RISK_MODEL"] = ClinicalRiskModel.load(str(_crm_file))
+            logger.info("ClinicalRiskModel (XGBoost) loaded | path=%s", _crm_file)
+        except Exception as exc:
+            logger.warning("ClinicalRiskModel load failed (%s): %s", _crm_file, exc)
+    else:
+        logger.info("ClinicalRiskModel artifact absent (optional) | path=%s", _crm_file)
     app.config["BACKFILL_JOBS"] = {}
     app.config["BACKFILL_LOCK"] = threading.Lock()
     app.config["BACKFILL_ACTIVE_JOB_ID"] = None
@@ -1294,6 +1312,83 @@ def _register_api_routes(app: Flask) -> None:
           return jsonify({**summary, "results": [r.to_dict() for r in results]}), 200
       except Exception as e:
           logger.error("anomaly_scan error: %s", e)
+          return jsonify({"error": str(e), "status": 500}), 500
+
+  @app.route("/api/clinical-risk-model/status", methods=["GET"])
+  def clinical_risk_model_status():
+      """Report whether the optional tabular XGBoost artifact is loaded and show last training eval."""
+      model: ClinicalRiskModel | None = app.config.get("CLINICAL_RISK_MODEL")
+      path = app.config.get("CLINICAL_RISK_MODEL_PATH", "")
+      base = {
+          "status": 200,
+          "loaded": model is not None,
+          "artifact_path": path,
+          "model_name": ClinicalRiskModel.MODEL_NAME,
+      }
+      if model is None:
+          base["eval"] = None
+          base["feature_importance_top_10"] = None
+          base["message"] = (
+              "No artifact at startup path. Train and save: ClinicalRiskModel().train(csv_path, save_path=...), "
+              "or set CLINICAL_RISK_MODEL_PATH to a .pkl from model.save(). Not required for core NER APIs."
+          )
+          return jsonify(base), 200
+      er = model.eval_result_
+      return jsonify({
+          **base,
+          "eval": er.to_dict() if er else None,
+          "feature_importance_top_10": model.feature_importance(top_n=10),
+      }), 200
+
+  @app.route("/api/clinical-risk-model/predict", methods=["POST"])
+  def clinical_risk_model_predict():
+      """Score Diabetes-130-style tabular rows with the loaded ClinicalRiskModel (if any)."""
+      ok, rate_error = _check_rate_limit("clinical_risk_predict", limit=60, window_sec=60)
+      if not ok:
+          return jsonify(rate_error[0]), rate_error[1]
+
+      if not request.is_json:
+          return jsonify({"error": "Request must be JSON", "status": 400}), 400
+
+      payload = request.get_json(silent=True) or {}
+      records = payload.get("records")
+      if not isinstance(records, list) or len(records) == 0:
+          return jsonify({
+              "error": "Body must contain a non-empty JSON array 'records' of row objects (Diabetes-130 columns).",
+              "status": 400,
+          }), 400
+      if len(records) > 100:
+          return jsonify({"error": "Maximum 100 records per request", "status": 400}), 400
+
+      for i, r in enumerate(records):
+          if not isinstance(r, dict):
+              return jsonify({"error": f"records[{i}] must be a JSON object", "status": 400}), 400
+
+      model: ClinicalRiskModel | None = app.config.get("CLINICAL_RISK_MODEL")
+      if model is None:
+          return jsonify({
+              "error": (
+                  "XGBoost tabular model not loaded. See GET /api/clinical-risk-model/status "
+                  "and CLINICAL_RISK_MODEL_PATH."
+              ),
+              "status": 503,
+          }), 503
+
+      import pandas as pd
+
+      try:
+          df = pd.DataFrame(records)
+          if "readmitted" in df.columns:
+              df = df.drop(columns=["readmitted"])
+          proba = model.predict_proba(df)
+          return jsonify({
+              "status": 200,
+              "model_name": model.MODEL_NAME,
+              "n_records": len(records),
+              "readmission_prob_30d": [round(float(x), 6) for x in proba],
+          }), 200
+      except Exception as e:
+          logger.exception("clinical_risk_model_predict failed")
           return jsonify({"error": str(e), "status": 500}), 500
 
 

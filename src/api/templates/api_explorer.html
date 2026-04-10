@@ -98,10 +98,14 @@ without context switching.</h3><p>Sample actions accelerate endpoint checks acro
           <option value="get-admin-status-latest">GET /api/admin/backfill-status — Latest job</option>
           <option value="get-admin-status-id">GET /api/admin/backfill-status/&lt;job_id&gt;</option>
         </optgroup>
+        <optgroup label="GET — Tabular XGBoost (optional artifact)">
+          <option value="get-clinical-risk-status">GET /api/clinical-risk-model/status — Loaded + eval</option>
+        </optgroup>
         <optgroup label="POST — Masking &amp; ML">
           <option value="post-deidentify">POST /api/deidentify — Mask JSON text</option>
           <option value="post-anomaly">POST /api/anomaly-scan — 10+ notes (IsolationForest)</option>
           <option value="post-readmission">POST /api/predict-readmission — Readmission risk</option>
+          <option value="post-clinical-risk-predict">POST /api/clinical-risk-model/predict — Tabular rows</option>
         </optgroup>
         <optgroup label="POST — Review &amp; admin">
           <option value="post-review-decision">POST /api/review/decision — Submit review</option>
@@ -155,6 +159,8 @@ without context switching.</h3><p>Sample actions accelerate endpoint checks acro
   <article class="route animate-up"><span class="method">POST /api/deidentify</span><small>JSON or multipart file</small></article>
   <article class="route animate-up"><span class="method">POST /api/anomaly-scan</span><small>≥10 notes → scores</small></article>
   <article class="route animate-up"><span class="method">POST /api/predict-readmission</span><small>Risk from note features</small></article>
+  <article class="route animate-up"><span class="method">GET /api/clinical-risk-model/status</span><small>XGBoost artifact</small></article>
+  <article class="route animate-up"><span class="method">POST /api/clinical-risk-model/predict</span><small>Diabetes-130 rows</small></article>
   <article class="route animate-up"><span class="method">GET /api/export/compliance-pack</span><small>Bundle JSON</small></article>
 </section>
 
@@ -247,6 +253,45 @@ const anomalyScanBody = JSON.stringify({
   notes: Array.from({ length: 10 }, (_, i) => `Clinical note ${i + 1}: Patient MRN ${8000 + i}, routine outpatient visit.`)
 }, null, 2);
 
+const clinicalRiskPredictBody = JSON.stringify({
+  records: [{
+    encounter_id: 1,
+    patient_nbr: 101,
+    race: 'Caucasian',
+    gender: 'Male',
+    age: '[50-60)',
+    weight: '?',
+    admission_type_id: 1,
+    discharge_disposition_id: 1,
+    admission_source_id: 7,
+    time_in_hospital: 3,
+    payer_code: 'MC',
+    medical_specialty: 'Cardiology',
+    num_lab_procedures: 40,
+    num_procedures: 1,
+    num_medications: 10,
+    number_outpatient: 0,
+    number_emergency: 0,
+    number_inpatient: 1,
+    diag_1: '250.01',
+    diag_2: '401.9',
+    diag_3: '272.4',
+    number_diagnoses: 7,
+    max_glu_serum: 'None',
+    A1Cresult: 'None',
+    metformin: 'No',
+    insulin: 'Steady',
+    glipizide: 'No',
+    glyburide: 'No',
+    pioglitazone: 'No',
+    rosiglitazone: 'No',
+    diabetesMed: 'Yes',
+    change: 'Ch',
+    examide: 'No',
+    citoglipton: 'No'
+  }]
+}, null, 2);
+
 const adminJsonHeaders = {
   'Content-Type': 'application/json',
   'X-Admin-Token': 'PASTE_ADMIN_BACKFILL_TOKEN'
@@ -268,6 +313,7 @@ const ENDPOINT_PRESETS = {
   'get-compliance-pack': { method: 'GET', path: '/api/export/compliance-pack', headers: {}, body: '{}' },
   'get-admin-status-latest': { method: 'GET', path: '/api/admin/backfill-status', headers: { ...adminJsonHeaders }, body: '{}' },
   'get-admin-status-id': { method: 'GET', path: '/api/admin/backfill-status/paste-job-id-here', headers: { ...adminJsonHeaders }, body: '{}' },
+  'get-clinical-risk-status': { method: 'GET', path: '/api/clinical-risk-model/status', headers: {}, body: '{}' },
   'post-deidentify': {
     method: 'POST',
     path: '/api/deidentify',
@@ -292,6 +338,12 @@ const ENDPOINT_PRESETS = {
       text: 'Patient with multiple comorbidities; prior admissions noted.',
       entities: [{ label: 'PERSON' }, { label: 'DATE' }]
     }, null, 2)
+  },
+  'post-clinical-risk-predict': {
+    method: 'POST',
+    path: '/api/clinical-risk-model/predict',
+    headers: { 'Content-Type': 'application/json' },
+    body: clinicalRiskPredictBody
   },
   'post-review-decision': {
     method: 'POST',
